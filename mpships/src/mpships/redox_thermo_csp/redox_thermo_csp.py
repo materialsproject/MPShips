@@ -20,6 +20,7 @@ from mp_web.core.utils import (
     get_rester,
     get_tooltip,
 )
+from mp_web.settings import SETTINGS
 from pymatgen.util.string import unicodeify
 from functools import lru_cache
 
@@ -47,7 +48,7 @@ def get_data():
             "project": "redox_thermo_csp",
         },
         fields="_all",
-        timeout=10,
+        timeout=SETTINGS.CONTRIBS_TIMEOUT,
     )
 
 
@@ -1634,7 +1635,7 @@ def query_mp_contribs_energy_analysis(
             "data.delta2",
         ],
         paginate=True,
-        timeout=10,
+        timeout=SETTINGS.CONTRIBS_TIMEOUT,
     )
     if contributions_resp:
         # reformat MPContribs data to work with Josua Vieten's original code
