@@ -47,7 +47,7 @@ def get_data():
         query={
             "project": "redox_thermo_csp",
         },
-        fields="_all",
+        fields=["_all"],
         timeout=SETTINGS.CONTRIBS_TIMEOUT,
     )
 
