@@ -1,4 +1,3 @@
-
 import crystal_toolkit.components as ctc
 import crystal_toolkit.helpers.layouts as ctl
 import dash
@@ -48,6 +47,7 @@ isographs_contributions_resp = mpr.contribs.query_contributions(
     },
     fields=fields,
 )
+
 
 class RedoxThermoCSPAIO(html.Div):
 
@@ -309,7 +309,6 @@ class RedoxThermoCSPAIO(html.Div):
                     value="isographs",
                 ),
                 dcc.Tab(
-                    
                     children=[
                         html.Br(),
                         self.get_energy_analysis_layout(aio),
@@ -342,24 +341,35 @@ class RedoxThermoCSPAIO(html.Div):
         updated = []
 
         # organize MpContribs data into lists for DataFrame
-        for entry in isographs_contributions_resp['data']:
-            formula.append(entry['data']['phases']['oxidized']['composition'])
-            oxidized_mpid.append(entry['data']['phases']['oxidized']['mpid'])
-            oxidized_composition.append(entry['data']['phases']['oxidized']['composition'])
-            reduced_mpid.append(entry['data']['phases']['reduced']['mpid'])
+        for entry in isographs_contributions_resp["data"]:
+            formula.append(entry["data"]["phases"]["oxidized"]["composition"])
+            oxidized_mpid.append(entry["data"]["phases"]["oxidized"]["mpid"])
+            oxidized_composition.append(
+                entry["data"]["phases"]["oxidized"]["composition"]
+            )
+            reduced_mpid.append(entry["data"]["phases"]["reduced"]["mpid"])
             try:
-                reduced_composition.append(entry['data']['phases']['reduced']['composition'])
+                reduced_composition.append(
+                    entry["data"]["phases"]["reduced"]["composition"]
+                )
             except:
-                reduced_composition.append('-')
-            theoretical_tolerance.append(entry['data']['theoretical']['tolerance']['value'])
-            theoretical_composition.append(entry['data']['theoretical']['composition'])
-            theoretical_delta_H_min.append(entry['data']['theoretical']['ΔH']['min']['value'])
-            theoretical_delta_H_max.append(entry['data']['theoretical']['ΔH']['max']['value'])
-            solution.append(entry['data']['solution'])
-            availability.append(entry['data']['availability'])
-            updated.append(entry['data']['updated'])
+                reduced_composition.append("-")
+            theoretical_tolerance.append(
+                entry["data"]["theoretical"]["tolerance"]["value"]
+            )
+            theoretical_composition.append(entry["data"]["theoretical"]["composition"])
+            theoretical_delta_H_min.append(
+                entry["data"]["theoretical"]["ΔH"]["min"]["value"]
+            )
+            theoretical_delta_H_max.append(
+                entry["data"]["theoretical"]["ΔH"]["max"]["value"]
+            )
+            solution.append(entry["data"]["solution"])
+            availability.append(entry["data"]["availability"])
+            updated.append(entry["data"]["updated"])
 
-        data = {"Formula": formula,
+        data = {
+            "Formula": formula,
             "Oxidized mp-id": oxidized_mpid,
             "Oxidized Composition": oxidized_composition,
             "Reduced mp-id": reduced_mpid,
@@ -370,8 +380,8 @@ class RedoxThermoCSPAIO(html.Div):
             "Theoretical ΔH Max (kJ/mol)": theoretical_delta_H_max,
             "Solution": solution,
             "Availability": availability,
-            "Last Updated": updated
-            }
+            "Last Updated": updated,
+        }
 
         df = pd.DataFrame(data)
 
@@ -391,7 +401,9 @@ class RedoxThermoCSPAIO(html.Div):
                     dashGridOptions={
                         "rowSelection": "single",
                     },
-                    selectedRows=df[df["Theoretical Composition"] == "Sr1Fe1Ox"].to_dict("records")
+                    selectedRows=df[
+                        df["Theoretical Composition"] == "Sr1Fe1Ox"
+                    ].to_dict("records"),
                 ),
             ]
         )
@@ -527,51 +539,51 @@ class RedoxThermoCSPAIO(html.Div):
             {"label": "Isobar line", "component": elling_pressure_slider},
         ]
 
-
         return ctl.Container(
             [
                 html.Div(
                     html.Div(
                         [
                             html.P(
-                            "Search perovskites and view the relationships between their thermodynamic variables for different conditions",                        
-                            style={
-                                "text-align": "center !important",
-                                "margin-bottom": ".5rem !important",
-                                "unicode-bidi": "isolate",
-                                "color": "#4a4a4a",
-                                "font-size": "18px",
-                                "font-weight": "400",
-                                "line-height": "1.5",
-                                "padding": "12px"
-                            }
-                        ),
-                            dcc.Input(id=self.ids.quick_filter(aio), 
-                                      placeholder="e.g. SrFeO3",
-                                      style={
-                                        "font-size": "1.25rem",
-                                        "background-color": "#fff",
-                                        "border-color": "#dbdbdb",
-                                        "border-radius": "4px",
-                                        "color": "#363636",
-                                        "webkit-appearance": "none",
-                                        "align-items": "center",
-                                        "border": "1px solid rgba(0, 0, 0, 0)",
-                                        "height": "2.5em",
-                                        "justify-content": "flex-start",
-                                        "line-height": "1.5",
-                                        "padding": "12px",
-                                        "position": "relative",
-                                        "vertical-align": "top",
-                                        "min-width":"400px"
-                                      }),
-
+                                "Search perovskites and view the relationships between their thermodynamic variables for different conditions",
+                                style={
+                                    "text-align": "center !important",
+                                    "margin-bottom": ".5rem !important",
+                                    "unicode-bidi": "isolate",
+                                    "color": "#4a4a4a",
+                                    "font-size": "18px",
+                                    "font-weight": "400",
+                                    "line-height": "1.5",
+                                    "padding": "12px",
+                                },
+                            ),
+                            dcc.Input(
+                                id=self.ids.quick_filter(aio),
+                                placeholder="e.g. SrFeO3",
+                                style={
+                                    "font-size": "1.25rem",
+                                    "background-color": "#fff",
+                                    "border-color": "#dbdbdb",
+                                    "border-radius": "4px",
+                                    "color": "#363636",
+                                    "webkit-appearance": "none",
+                                    "align-items": "center",
+                                    "border": "1px solid rgba(0, 0, 0, 0)",
+                                    "height": "2.5em",
+                                    "justify-content": "flex-start",
+                                    "line-height": "1.5",
+                                    "padding": "12px",
+                                    "position": "relative",
+                                    "vertical-align": "top",
+                                    "min-width": "400px",
+                                },
+                            ),
                         ],
                         style={
-                            "display":"flex",
-                            "justify-content":"center",
-                            "align-items":"center",
-                            "flex-direction":"column",
+                            "display": "flex",
+                            "justify-content": "center",
+                            "align-items": "center",
+                            "flex-direction": "column",
                             "position": "relative",
                             "width": "auto",
                             "unicode-bidi": "isolate",
@@ -579,14 +591,12 @@ class RedoxThermoCSPAIO(html.Div):
                             "font-size": "1em",
                             "font-weight": "400",
                             "line-height": "1.5",
-
-                        }
+                        },
                     ),
-                    style=
-                    {
-                        "display":"flex",
-                        "justify-content":"center",
-                        "align-items":"center",
+                    style={
+                        "display": "flex",
+                        "justify-content": "center",
+                        "align-items": "center",
                         "background": "#ebebeb",
                         "border-bottom": "1px solid #dbdbdb",
                         "padding-bottom": "1.5rem",
@@ -597,17 +607,17 @@ class RedoxThermoCSPAIO(html.Div):
                         "font-size": "1em",
                         "font-weight": "400",
                         "line-height": "1.5",
-                    }
+                    },
                 ),
                 ctl.Box(
                     [
                         isographs_data_table,
                         ctl.H3(
-                            id=self.ids.isograph_information(aio), 
-                                style={
-                                    "padding-top": "24px",
-                                    }
-                                ),
+                            id=self.ids.isograph_information(aio),
+                            style={
+                                "padding-top": "24px",
+                            },
+                        ),
                         ctl.Columns(
                             [
                                 ctl.Column(
@@ -661,7 +671,7 @@ class RedoxThermoCSPAIO(html.Div):
                             ]
                         ),
                     ]
-                ), 
+                ),
                 self.how_to_cite,
             ],
         )
@@ -670,22 +680,22 @@ class RedoxThermoCSPAIO(html.Div):
         # create the layout that will appear in the "energy_analysis_tab"
         enera_fig = enera_fig_gen(en_dat=query_mp_contribs_energy_analysis())
         t_ox_slider = dcc.Slider(
-                id=self.ids.t_ox_slider(aio),
-                min=350,
-                max=800,
-                step=None,
-                value=500,
-                tooltip={"always_visible": False},
-                marks={
-                    350: "350",
-                    400: "400",
-                    450: "450",
-                    500: "500",
-                    600: "600",
-                    700: "700",
-                    800: "800",
-                }
-            )
+            id=self.ids.t_ox_slider(aio),
+            min=350,
+            max=800,
+            step=None,
+            value=500,
+            tooltip={"always_visible": False},
+            marks={
+                350: "350",
+                400: "400",
+                450: "450",
+                500: "500",
+                600: "600",
+                700: "700",
+                800: "800",
+            },
+        )
         t_red_slider = dcc.Slider(
             id=self.ids.t_red_slider(aio),
             min=600,
@@ -740,7 +750,7 @@ class RedoxThermoCSPAIO(html.Div):
                 0: "1",
             },
         )
-        
+
         contents = [
             ctl.Container(
                 [
@@ -766,9 +776,9 @@ class RedoxThermoCSPAIO(html.Div):
                                             t_ox_slider,
                                             html.Br(),
                                             html.B(
-                                                id=self.ids.text_p_ox(aio), 
-                                                children="Oxidation Partial Pressure of Oxygen (bar)", 
-                                                style={"font-size": "20px"}
+                                                id=self.ids.text_p_ox(aio),
+                                                children="Oxidation Partial Pressure of Oxygen (bar)",
+                                                style={"font-size": "20px"},
                                             ),
                                             p_ox_slider,
                                             html.Br(),
@@ -912,7 +922,9 @@ class RedoxThermoCSPAIO(html.Div):
 
         layout = ctl.Container(
             [
-                create_header("View the redox properties of perovskites for different thermodynamic applications"),
+                create_header(
+                    "View the redox properties of perovskites for different thermodynamic applications"
+                ),
                 ctl.Columns(
                     [
                         ctl.Column(
@@ -949,16 +961,16 @@ class RedoxThermoCSPAIO(html.Div):
                         ctl.Column([html.Div("")]),
                     ]
                 ),
-                html.Div(
-                    id=self.ids.variable_input(aio), children=contents
-                ),
+                html.Div(id=self.ids.variable_input(aio), children=contents),
                 html.Br(),
                 ctl.Box(
                     [
                         html.Div(
                             ctl.Loading(
-                                dcc.Graph(id=self.ids.enera_graph(aio), figure=enera_fig)
+                                dcc.Graph(
+                                    id=self.ids.enera_graph(aio), figure=enera_fig
                                 )
+                            )
                         ),
                         html.Br(),
                         html.Div(
@@ -1048,13 +1060,16 @@ class RedoxThermoCSPAIO(html.Div):
                 ),
                 ctl.Box(
                     html.Details(
-                    [
-                        html.Summary("Click for additional information about the graphed quantities"),
-                        html.Div(
-                            [
-                            html.Table(
-                                # see this page for markdown styling tips: https://dash.plotly.com/dash-core-components/markdown
-                                dcc.Markdown("""
+                        [
+                            html.Summary(
+                                "Click for additional information about the graphed quantities"
+                            ),
+                            html.Div(
+                                [
+                                    html.Table(
+                                        # see this page for markdown styling tips: https://dash.plotly.com/dash-core-components/markdown
+                                        dcc.Markdown(
+                                            """
                                         \n
                                        **Chemical Energy**: The chemical energy is defined by the redox enthalpy and is calculated as the integral over ΔH(δ) from δ$_{ox}$ to δ$_{red}$. It is inversely proportional to the heat recovery efficiency η$_{hrec, solid}$, as a more efficient heat recovery system allows for a larger fraction of the redox material to be re-heated by the waste heat from the previous cycle.
                                         \n
@@ -1064,11 +1079,11 @@ class RedoxThermoCSPAIO(html.Div):
                                         \n
                                        **Steam Generation**: This value is only displayed if water splitting is selected as process type. It refers to the energy required to heat steam to the oxidation temperature of the redox material. The inlet temperature of the steam generator can be defined. If it is below 100 °C, the heat of evaporation (40.79 kJ/mol) and the energy required to heat liquid water to its boiling point are considered. The heat capacities for water and steam are calculated using data from the [NIST-JANAF thermochemical tables](https://janaf.nist.gov/). For water splitting, a lower ratio of H$_2$ vs. H$_2$O in the product stream increases the amount of energy required for steam generation significantly, as more water needs to be heated up to generate the same amount of hydrogen. It is also possible to define a heat recovery efficiency from steam, which may be different from the heat recovery efficiency from the solid.
                                         """,
-                                        mathjax=True
+                                            mathjax=True,
                                         )
                                     ),
                                 ]
-                            )
+                            ),
                         ]
                     )
                 ),
@@ -1076,8 +1091,8 @@ class RedoxThermoCSPAIO(html.Div):
             ]
         )
         return layout
-    
-    #TODO see where a legend would look good for the isographs
+
+    # TODO see where a legend would look good for the isographs
 
     ######################
     # Isographs Callbacks
@@ -1085,16 +1100,16 @@ class RedoxThermoCSPAIO(html.Div):
 
     @callback(
         Output(ids.isographs_data_table(MATCH), "dashGridOptions"),
-        Input(ids.quick_filter(MATCH), "value")
+        Input(ids.quick_filter(MATCH), "value"),
     )
     def update_filter(filter_value):
         newFilter = Patch()
-        newFilter['quickFilterText'] = filter_value
+        newFilter["quickFilterText"] = filter_value
         return newFilter
 
     @callback(
         Output(ids.isograph_information(MATCH), "children"),
-        Input(ids.isographs_data_table(MATCH), "selectedRows")
+        Input(ids.isographs_data_table(MATCH), "selectedRows"),
     )
     def isograph_information_text(row):
         return f"Showing Isographs for {unicodeify(row[0]['Oxidized Composition'])}"
@@ -1152,8 +1167,8 @@ class RedoxThermoCSPAIO(html.Div):
 
     @callback(
         Output(ids.enthalpy(MATCH), "figure"),
-            Input(ids.isographs_data_table(MATCH), "selectedRows"),
-            Input(ids.dH_temp_slider(MATCH), "value"),
+        Input(ids.isographs_data_table(MATCH), "selectedRows"),
+        Input(ids.dH_temp_slider(MATCH), "value"),
     )
     def update_fig_3(row, dH_temp_slider):
         compstr = row[0]["Theoretical Composition"]
@@ -1186,7 +1201,6 @@ class RedoxThermoCSPAIO(html.Div):
         Input(ids.elling_redox_slider(MATCH), "value"),
         Input(ids.elling_temp_range(MATCH), "value"),
         Input(ids.elling_pressure_slider(MATCH), "value"),
-        
     )
     def update_fig_5(
         row,
@@ -1212,19 +1226,18 @@ class RedoxThermoCSPAIO(html.Div):
     @callback(
         Output(ids.w_feed(MATCH), "disabled"),
         Output(ids.w_hrec(MATCH), "disabled"),
-        Input(ids.process(MATCH), "value")
+        Input(ids.process(MATCH), "value"),
     )
     def enable_w_feed_and_w_hrec(process):
-        """enable or disable the water feed temperature and steam heat recovery sliders 
+        """enable or disable the water feed temperature and steam heat recovery sliders
         depending on the user's choice of process"""
         if process == "WS":
             return False, False
         else:
             return True, True
-        
+
     @callback(
-            Output(ids.text_p_ox(MATCH), "children"),
-            Input(ids.process(MATCH), "value")
+        Output(ids.text_p_ox(MATCH), "children"), Input(ids.process(MATCH), "value")
     )
     def set_text_p_ox(process):
         if process == "AS":
@@ -1233,32 +1246,32 @@ class RedoxThermoCSPAIO(html.Div):
             return "Partial pressure ratio p(H2)/p(H2O)"
         else:
             return "Partial pressure ratio p(CO)/p(CO2)"
-        
+
     @callback(
         Output(ids.t_ox_slider(MATCH), "min"),
         Output(ids.t_ox_slider(MATCH), "max"),
         Output(ids.t_ox_slider(MATCH), "value"),
         Output(ids.t_ox_slider(MATCH), "marks"),
-        Output(ids.t_red_slider(MATCH),"min"),
-        Output(ids.t_red_slider(MATCH),"max"),
-        Output(ids.t_red_slider(MATCH),"value"),
-        Output(ids.t_red_slider(MATCH),"marks"),
-        Output(ids.p_ox_slider(MATCH),"min"),
-        Output(ids.p_ox_slider(MATCH),"max"),
-        Output(ids.p_ox_slider(MATCH),"value"),
-        Output(ids.p_ox_slider(MATCH),"marks"),
-        Output(ids.p_red_slider(MATCH),"min"),
-        Output(ids.p_red_slider(MATCH),"max"),
-        Output(ids.p_red_slider(MATCH),"value"),
-        Output(ids.p_red_slider(MATCH),"marks"),
-        Input(ids.process(MATCH), "value")
+        Output(ids.t_red_slider(MATCH), "min"),
+        Output(ids.t_red_slider(MATCH), "max"),
+        Output(ids.t_red_slider(MATCH), "value"),
+        Output(ids.t_red_slider(MATCH), "marks"),
+        Output(ids.p_ox_slider(MATCH), "min"),
+        Output(ids.p_ox_slider(MATCH), "max"),
+        Output(ids.p_ox_slider(MATCH), "value"),
+        Output(ids.p_ox_slider(MATCH), "marks"),
+        Output(ids.p_red_slider(MATCH), "min"),
+        Output(ids.p_red_slider(MATCH), "max"),
+        Output(ids.p_red_slider(MATCH), "value"),
+        Output(ids.p_red_slider(MATCH), "marks"),
+        Input(ids.process(MATCH), "value"),
     )
     def process_change_sliders(process):
         """change the slider parameters depending on the user's choice of process"""
         if process == "AS":
             return (
-                350, 
-                800, 
+                350,
+                800,
                 500,
                 {
                     350: "350",
@@ -1307,7 +1320,7 @@ class RedoxThermoCSPAIO(html.Div):
                     -3: "10⁻³",
                     -0.67778070526: "0.21",
                     0: "1",
-                }
+                },
             )
         else:
             return (
@@ -1357,7 +1370,7 @@ class RedoxThermoCSPAIO(html.Div):
                     -3: "10⁻³",
                     -0.67778070526: "0.21",
                     0: "1",
-                }
+                },
             )
 
     @callback(
@@ -1374,7 +1387,7 @@ class RedoxThermoCSPAIO(html.Div):
             Input(ids.param_disp(MATCH), "value"),
             Input(ids.no_disp(MATCH), "value"),
             Input(ids.process(MATCH), "value"),
-            Input(ids.mech_env(MATCH), "value")
+            Input(ids.mech_env(MATCH), "value"),
         ],
     )
     def update_enera(
@@ -1389,7 +1402,7 @@ class RedoxThermoCSPAIO(html.Div):
         param_disp,
         no_disp,
         process,
-        mech_env
+        mech_env,
     ):
         ptype = "CO2 Splitting"
         if process == "AS":
@@ -1432,21 +1445,20 @@ class RedoxThermoCSPAIO(html.Div):
             param_disp=param_disp,
         )
         return fig
-    
+
     @callback(
-        Output(ids.pump_ener(MATCH), "disabled"),
-        Input(ids.mech_env(MATCH), "value")
-        
+        Output(ids.pump_ener(MATCH), "disabled"), Input(ids.mech_env(MATCH), "value")
     )
-    def toggle_pump_ener(mech_env): 
+    def toggle_pump_ener(mech_env):
         if mech_env == ["mech_env_true"]:
             return True
         return False
-    
-    
+
+
 ###############################
 # energy analysis functions
 ###############################
+
 
 def enera_fig_gen(
     en_dat,
@@ -1550,7 +1562,10 @@ def enera_fig_gen(
     else:
         fig.update_xaxes(linecolor="rgb(0,0,0)", tickfont_size=16)
     fig.update_yaxes(
-        title=yaxis_title, gridcolor="rgb(210,210,210)", title_font_size=24, tickfont_size=18
+        title=yaxis_title,
+        gridcolor="rgb(210,210,210)",
+        title_font_size=24,
+        tickfont_size=18,
     )
 
     fig.update_layout(
@@ -1558,15 +1573,16 @@ def enera_fig_gen(
         plot_bgcolor="rgb(255,255,255)",
         # showlegend=False,
         height=800,
-        legend_font_size=18
+        legend_font_size=18,
     )
     fig.update_xaxes()
 
-    #if no data in MPContribs
+    # if no data in MPContribs
     if not fig["data"]:
         return get_no_data_message()
 
     return fig
+
 
 def query_mp_contribs_energy_analysis(
     process_type="AS",
@@ -1615,10 +1631,10 @@ def query_mp_contribs_energy_analysis(
             "data.delta2",
         ],
         paginate=True,
+        timeout=10,
     )
     if contributions_resp:
-
-    # reformat MPContribs data to work with Josua Vieten's original code
+        # reformat MPContribs data to work with Josua Vieten's original code
         data = [
             {
                 "energy_analysis": [
@@ -1680,6 +1696,7 @@ def query_mp_contribs_energy_analysis(
 #####################################
 # Method for creating the isographs
 ####################################
+
 
 def get_figure(figure_number, theo_data, compstr, constant=None, rng=None, delta=None):
     def get_isograph_data(theo_data, _EXP_DATA, compstr, plottype, constant, rng, delt):
@@ -1752,7 +1769,7 @@ def get_figure(figure_number, theo_data, compstr, constant=None, rng=None, delta
             title="δ", linecolor="rgb(0,0,0)", gridcolor="rgb(210,210,210)"
         )
         format_plot(fig_0)
-        
+
         if not fig_0["data"]:
             return get_no_data_message()
         return fig_0
@@ -1896,9 +1913,10 @@ def get_figure(figure_number, theo_data, compstr, constant=None, rng=None, delta
         if not fig_5["data"]:
             return get_no_data_message()
         return fig_5
-    
+
+
 def reformat_isograph_data(compstr):
-    """for use in isographs callbacks to get the isographs data into the correct format for 
+    """for use in isographs callbacks to get the isographs data into the correct format for
     use in other methods"""
     if not isographs_contributions_resp["data"]:
         logger.error(f"Failed to load contribution for {compstr}")
@@ -1910,83 +1928,72 @@ def reformat_isograph_data(compstr):
     if not requested_data:
         logger.error(f"Failed to load contribution for {compstr}")
         raise PreventUpdate
-    # get the contribs data back into the original json format that works with 
+    # get the contribs data back into the original json format that works with
     # all the functions in 'redox_views.py'
     theo_data = {
         "collection": [
             {
                 "data": {
-                    "tolerance_factor": requested_data["data"][
-                        "theoretical"
-                    ]["tolerance"]["value"],
-                    "solid_solution": requested_data["data"][
-                        "solution"
-                    ],
+                    "tolerance_factor": requested_data["data"]["theoretical"][
+                        "tolerance"
+                    ]["value"],
+                    "solid_solution": requested_data["data"]["solution"],
                     "oxidized_phase": {
                         "crystal-structure": [],
-                        "composition": requested_data["data"][
-                            "phases"
-                        ]["oxidized"]["composition"],
+                        "composition": requested_data["data"]["phases"]["oxidized"][
+                            "composition"
+                        ],
                     },
                     "reduced_phase": {
-                        "closest_MP": requested_data["data"][
-                            "phases"
-                        ]["reduced"]["mpid"],
-                        "composition": requested_data["data"][
-                            "phases"
-                        ]["reduced"]["composition"],
+                        "closest_MP": requested_data["data"]["phases"]["reduced"][
+                            "mpid"
+                        ],
+                        "composition": requested_data["data"]["phases"]["reduced"][
+                            "composition"
+                        ],
                     },
                 },
-                "_id": requested_data["data"]["phases"]["oxidized"][
-                    "mpid"
-                ],
+                "_id": requested_data["data"]["phases"]["oxidized"]["mpid"],
                 "pars": {
-                    "theo_compstr": requested_data["data"][
-                        "theoretical"
-                    ]["composition"],
+                    "theo_compstr": requested_data["data"]["theoretical"][
+                        "composition"
+                    ],
                     "act_mat": [
                         [],
-                        requested_data["data"]["theoretical"][
-                            "active"
-                        ]["value"],
+                        requested_data["data"]["theoretical"]["active"]["value"],
                     ],
                     "elastic": {
-                        "Elastic tensors available": requested_data[
-                            "data"
-                        ]["theoretical"]["elastic"]["tensors"]
+                        "Elastic tensors available": requested_data["data"][
+                            "theoretical"
+                        ]["elastic"]["tensors"]
                         != "False",
-                        "Debye temp brownmillerite": requested_data[
-                            "data"
-                        ]["theoretical"]["elastic"]["debye"]["brownmillerite"][
-                            "value"
-                        ],
-                        "Debye temp perovskite": requested_data[
-                            "data"
-                        ]["theoretical"]["elastic"]["debye"]["perovskite"]["value"],
+                        "Debye temp brownmillerite": requested_data["data"][
+                            "theoretical"
+                        ]["elastic"]["debye"]["brownmillerite"]["value"],
+                        "Debye temp perovskite": requested_data["data"]["theoretical"][
+                            "elastic"
+                        ]["debye"]["perovskite"]["value"],
                     },
-                    "data_availability": requested_data["data"][
-                        "availability"
+                    "data_availability": requested_data["data"]["availability"],
+                    "last_updated": requested_data["data"]["updated"],
+                    "dh_min": requested_data["data"]["theoretical"]["ΔH"]["min"][
+                        "value"
                     ],
-                    "last_updated": requested_data["data"][
-                        "updated"
+                    "dh_max": requested_data["data"]["theoretical"]["ΔH"]["max"][
+                        "value"
                     ],
-                    "dh_min": requested_data["data"]["theoretical"][
-                        "ΔH"
-                    ]["min"]["value"],
-                    "dh_max": requested_data["data"]["theoretical"][
-                        "ΔH"
-                    ]["max"]["value"],
                 },
             }
         ]
     }
     return theo_data
 
+
 def create_header(header_text):
     return html.Div(
         html.Div(
             html.P(
-                children=header_text,                        
+                children=header_text,
                 style={
                     "text-align": "center !important",
                     "margin-bottom": ".5rem !important",
@@ -1994,14 +2001,13 @@ def create_header(header_text):
                     "color": "#4a4a4a",
                     "font-size": "18px",
                     "font-weight": "400",
-                    "line-height": "1.5"
-                }
+                    "line-height": "1.5",
+                },
             ),
-            style=
-            {
-                "display":"flex",
-                "justify-content":"center",
-                "align-items":"center",
+            style={
+                "display": "flex",
+                "justify-content": "center",
+                "align-items": "center",
                 "position": "relative",
                 "width": "auto",
                 "unicode-bidi": "isolate",
@@ -2009,14 +2015,12 @@ def create_header(header_text):
                 "font-size": "1em",
                 "font-weight": "400",
                 "line-height": "1.5",
-
-            }
+            },
         ),
-        style=
-        {
-            "display":"flex",
-            "justify-content":"center",
-            "align-items":"center",
+        style={
+            "display": "flex",
+            "justify-content": "center",
+            "align-items": "center",
             "background": "#ebebeb",
             "border-bottom": "1px solid #dbdbdb",
             "padding-bottom": "1.5rem",
@@ -2027,27 +2031,27 @@ def create_header(header_text):
             "font-size": "1em",
             "font-weight": "400",
             "line-height": "1.5",
-        }
+        },
     )
 
+
 def get_no_data_message():
-        fig = go.Figure()
-        fig.update_layout(
-            xaxis =  { "visible": False },
-            yaxis = { "visible": False },
-            annotations = [
-                {   
-                    "text": "No data found for the selected conditions, please try another set of conditions",
-                    "xref": "paper",
-                    "yref": "paper",
-                    "showarrow": False,
-                    "font": {
-                        "size": 28
-                    }
-                }
-            ]
-        )
-        return fig
+    fig = go.Figure()
+    fig.update_layout(
+        xaxis={"visible": False},
+        yaxis={"visible": False},
+        annotations=[
+            {
+                "text": "No data found for the selected conditions, please try another set of conditions",
+                "xref": "paper",
+                "yref": "paper",
+                "showarrow": False,
+                "font": {"size": 28},
+            }
+        ],
+    )
+    return fig
+
 
 if __name__ == "__main__":
     app = dash.Dash(__name__, assets_folder="./assets")
