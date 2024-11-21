@@ -21,6 +21,7 @@ from mp_web.core.utils import (
     get_tooltip,
 )
 from pymatgen.util.string import unicodeify
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -37,16 +38,17 @@ ISOGRAPHS_TOOLTIPS = {
     "Ellingham": "Shows ΔG0 as a function of the temperature T (in K) with fixed non-stoichiometry δ. The gray isobar line can be adjusted to account for different oxygen partial pressures according to ΔG(pO2) = ΔG0 - 1/2 * RT * ln(pO2). If ΔG0 is below the isobar line, the reduction occurs spontaneously.",
 }
 
-# get isograph data immediately from MPContribs
-mpr = get_rester()
-project = mpr.contribs.get_project(name="redox_thermo_csp")
-fields = [column["path"] for column in project["columns"]]
-isographs_contributions_resp = mpr.contribs.query_contributions(
-    query={
-        "project": "redox_thermo_csp",
-    },
-    fields=fields,
-)
+
+@lru_cache(1)
+def get_data():
+    mpr = get_rester()
+    return mpr.contribs.query_contributions(
+        query={
+            "project": "redox_thermo_csp",
+        },
+        fields="_all",
+        timeout=10,
+    )
 
 
 class RedoxThermoCSPAIO(html.Div):
@@ -341,6 +343,7 @@ class RedoxThermoCSPAIO(html.Div):
         updated = []
 
         # organize MpContribs data into lists for DataFrame
+        isographs_contributions_resp = get_data()
         for entry in isographs_contributions_resp["data"]:
             formula.append(entry["data"]["phases"]["oxidized"]["composition"])
             oxidized_mpid.append(entry["data"]["phases"]["oxidized"]["mpid"])
@@ -1918,6 +1921,7 @@ def get_figure(figure_number, theo_data, compstr, constant=None, rng=None, delta
 def reformat_isograph_data(compstr):
     """for use in isographs callbacks to get the isographs data into the correct format for
     use in other methods"""
+    isographs_contributions_resp = get_data()
     if not isographs_contributions_resp["data"]:
         logger.error(f"Failed to load contribution for {compstr}")
         raise PreventUpdate
