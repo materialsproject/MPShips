@@ -22,7 +22,6 @@ from mp_web.core.utils import (
 )
 from mp_web.settings import SETTINGS
 from pymatgen.util.string import unicodeify
-from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -38,18 +37,6 @@ ISOGRAPHS_TOOLTIPS = {
     "Entropy (dS)": "Shows the redox entropy ΔS as a function of the non-stoichiometry δ. Please note: The experimental dataset only contains values of ΔS(δ) instead of ΔS(δ,T) due to the measurement method. The fixed temperature value T therefore only refers to the theoretical data.",
     "Ellingham": "Shows ΔG0 as a function of the temperature T (in K) with fixed non-stoichiometry δ. The gray isobar line can be adjusted to account for different oxygen partial pressures according to ΔG(pO2) = ΔG0 - 1/2 * RT * ln(pO2). If ΔG0 is below the isobar line, the reduction occurs spontaneously.",
 }
-
-
-@lru_cache(1)
-def get_data():
-    mpr = get_rester()
-    return mpr.contribs.query_contributions(
-        query={
-            "project": "redox_thermo_csp",
-        },
-        fields=["_all"],
-        timeout=SETTINGS.CONTRIBS_TIMEOUT,
-    )
 
 
 class RedoxThermoCSPAIO(html.Div):
@@ -344,30 +331,36 @@ class RedoxThermoCSPAIO(html.Div):
         updated = []
 
         # organize MpContribs data into lists for DataFrame
-        isographs_contributions_resp = get_data()
+        mpr = get_rester()
+        isographs_contributions_resp = mpr.contribs.query_contributions(
+            query={
+                "project": "redox_thermo_csp",
+            },
+            fields=[
+                "data.phases",
+                "data.theoretical",
+                "data.solution",
+                "data.availability",
+                "data.updated",
+            ],
+            timeout=SETTINGS.CONTRIBS_TIMEOUT,
+        )
         for entry in isographs_contributions_resp["data"]:
-            formula.append(entry["data"]["phases"]["oxidized"]["composition"])
-            oxidized_mpid.append(entry["data"]["phases"]["oxidized"]["mpid"])
-            oxidized_composition.append(
-                entry["data"]["phases"]["oxidized"]["composition"]
-            )
-            reduced_mpid.append(entry["data"]["phases"]["reduced"]["mpid"])
-            try:
-                reduced_composition.append(
-                    entry["data"]["phases"]["reduced"]["composition"]
-                )
-            except:
+            phases = entry["data"]["phases"]
+            formula.append(phases["oxidized"]["composition"])
+            oxidized_mpid.append(phases["oxidized"]["mpid"])
+            oxidized_composition.append(phases["oxidized"]["composition"])
+            reduced_mpid.append(phases["reduced"]["mpid"])
+            if "composition" in phases["reduced"]:
+                reduced_composition.append(phases["reduced"]["composition"])
+            else:
                 reduced_composition.append("-")
-            theoretical_tolerance.append(
-                entry["data"]["theoretical"]["tolerance"]["value"]
-            )
-            theoretical_composition.append(entry["data"]["theoretical"]["composition"])
-            theoretical_delta_H_min.append(
-                entry["data"]["theoretical"]["ΔH"]["min"]["value"]
-            )
-            theoretical_delta_H_max.append(
-                entry["data"]["theoretical"]["ΔH"]["max"]["value"]
-            )
+
+            theo = entry["data"]["theoretical"]
+            theoretical_tolerance.append(theo["tolerance"]["value"])
+            theoretical_composition.append(theo["composition"])
+            theoretical_delta_H_min.append(theo["ΔH"]["min"]["value"])
+            theoretical_delta_H_max.append(theo["ΔH"]["max"]["value"])
             solution.append(entry["data"]["solution"])
             availability.append(entry["data"]["availability"])
             updated.append(entry["data"]["updated"])
@@ -1922,17 +1915,31 @@ def get_figure(figure_number, theo_data, compstr, constant=None, rng=None, delta
 def reformat_isograph_data(compstr):
     """for use in isographs callbacks to get the isographs data into the correct format for
     use in other methods"""
-    isographs_contributions_resp = get_data()
+    # find the data for the row the user clicked on
+    mpr = get_rester()
+    isographs_contributions_resp = mpr.contribs.query_contributions(
+        query={
+            "project": "redox_thermo_csp",
+            "data__theoretical__composition__exact": compstr,
+        },
+        fields=[
+            "data.theoretical",
+            "data.solution",
+            "data.phases",
+            "data.availability",
+            "data.updated",
+        ],
+        timeout=SETTINGS.CONTRIBS_TIMEOUT,
+    )
     if not isographs_contributions_resp["data"]:
         logger.error(f"Failed to load contribution for {compstr}")
         raise PreventUpdate
-    # find the data for the row the user clicked on
-    for entry in isographs_contributions_resp["data"]:
-        if entry["data"]["theoretical"]["composition"] == compstr:
-            requested_data = entry
+
+    requested_data = isographs_contributions_resp["data"][0]
     if not requested_data:
         logger.error(f"Failed to load contribution for {compstr}")
         raise PreventUpdate
+
     # get the contribs data back into the original json format that works with
     # all the functions in 'redox_views.py'
     theo_data = {
