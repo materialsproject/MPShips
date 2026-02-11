@@ -663,16 +663,11 @@ def calc_dh_endm(compstr):
 
     endm = find_endmembers(compstr)
     dh_1 = find_theo_redenth(endm[0]) * endm[4] + find_theo_redenth(endm[1]) * endm[5]
+    # TODO Should this be (note the missing `endm[3]`)?
+    # dh_2 = find_theo_redenth(endm[2]) * endm[4] + find_theo_redenth(endm[3]) * endm[5]
     dh_2 = find_theo_redenth(endm[2]) * endm[4] + find_theo_redenth(endm[2]) * endm[5]
 
-    if dh_1 > dh_2:
-        dh_max = dh_1
-        dh_min = dh_2
-    else:
-        dh_max = dh_2
-        dh_min = dh_1
-
-    return dh_max, dh_min
+    return max(dh_1, dh_2), min(dh_1, dh_2)
 
 
 def redenth_act(compstr):
@@ -1466,7 +1461,7 @@ def energy_on_the_fly(
     )
 
     # create dictionary with results
-    dict_result = {
+    return {
         "kJ/mol redox material": result_val_ener_i,
         "kJ/kg redox material": result_val_per_kg_redox,
         "Wh/kg redox material": result_val_per_kg_wh_redox,
@@ -1482,5 +1477,3 @@ def energy_on_the_fly(
         "Change in non-stoichiometry between T_ox and T_red": result_val_delta_redox,
         "Mass change between T_ox and T_red": result_val_mass_change,
     }
-
-    return dict_result

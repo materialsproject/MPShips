@@ -29,7 +29,9 @@ class redis_store:
 
     try:
         r = redis.StrictRedis.from_url(
-            os.environ.get("REDIS_URL") or SETTINGS.REDIS_ADDRESS
+            os.environ.get("REDIS_URL")
+            or os.environ.get("MP_REDIS_URL")
+            or SETTINGS.REDIS_ADDRESS
         )
     except ValueError:
         warnings.warn("Using FakeRedis - Not suitable for Production Use.")
