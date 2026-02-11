@@ -2,6 +2,8 @@ import crystal_toolkit.components as ctc
 import crystal_toolkit.helpers.layouts as ctl
 import dash
 import dash_ag_grid as dag
+import gzip
+import json
 import logging
 import numpy as np
 import pandas as pd
@@ -12,7 +14,6 @@ import uuid
 from dash import callback, dcc, html, MATCH, Patch, State, no_update
 from dash.dependencies import Input, Output
 from dash.exceptions import PreventUpdate
-from monty.serialization import loadfn
 from mpships.redox_thermo_csp.redox_views import InitData as ID
 from mpships.redox_thermo_csp.redox_views import Isographs as Iso
 from mpships.redox_thermo_csp.redox_views import energy_analysis
@@ -27,7 +28,10 @@ logger = logging.getLogger(__name__)
 
 
 # Load the JSON file
-_EXP_DATA = loadfn(os.path.join(os.path.dirname(__file__), "exp_data.json"))
+with gzip.open(
+    os.path.join(os.path.dirname(__file__), "exp_data.json.gz"), "r"
+) as _data_file:
+    _EXP_DATA = json.load(_data_file)
 
 ISOGRAPHS_TOOLTIPS = {
     "Isotherm": "Shows the non-stoichiometry δ as a function of the oxygen partial pressure pO\N{SUPERSCRIPT TWO} (in bar) with fixed temperature T (in K)",
