@@ -27,11 +27,11 @@ class redis_store:
     will not scale across multiple processes.
     """
 
-    if "REDIS_URL" in os.environ:
-        r = redis.StrictRedis.from_url(os.environ["REDIS_URL"])
-    elif SETTINGS.REDIS_ADDRESS:
-        r = redis.StrictRedis.from_url(SETTINGS.REDIS_ADDRESS)
-    else:
+    try:
+        r = redis.StrictRedis.from_url(
+            os.environ.get("REDIS_URL") or SETTINGS.REDIS_ADDRESS
+        )
+    except ValueError:
         warnings.warn("Using FakeRedis - Not suitable for Production Use.")
         r = fakeredis.FakeStrictRedis()
 
