@@ -5,8 +5,6 @@
 
 import unittest
 
-from mpships import mpships
-
 
 class TestMpships(unittest.TestCase):
     """Tests for `mpships` package."""

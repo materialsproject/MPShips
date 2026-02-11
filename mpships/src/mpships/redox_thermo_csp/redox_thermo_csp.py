@@ -40,7 +40,6 @@ ISOGRAPHS_TOOLTIPS = {
 
 
 class RedoxThermoCSPAIO(html.Div):
-
     class ids:
         # define all components' ids here
 
@@ -57,15 +56,15 @@ class RedoxThermoCSPAIO(html.Div):
             "aio": aio,
             "subcomponents": "isograph_information",
         }
-        isographs_load = lambda aio : {
+        isographs_load = lambda aio: {
             "component": "RedoxThermoCSPAIO",
             "aio": aio,
-            "subcomponents" : "isographs_load",
+            "subcomponents": "isographs_load",
         }
-        isographs_mount = lambda aio : {
+        isographs_mount = lambda aio: {
             "component": "RedoxThermoCSPAIO",
             "aio": aio,
-            "subcomponents":"isographs_mount",
+            "subcomponents": "isographs_mount",
         }
         isographs_tab = lambda aio: {
             "component": "RedoxThermoCSPAIO",
@@ -312,8 +311,8 @@ class RedoxThermoCSPAIO(html.Div):
                 dcc.Tab(
                     children=[
                         html.Br(),
-                        html.Div(id = ids.isographs_mount(aio)),
-                        dcc.Store(id = ids.isographs_load(aio), data=False), 
+                        html.Div(id=self.ids.isographs_mount(aio)),
+                        dcc.Store(id=self.ids.isographs_load(aio), data=False),
                     ],
                     label="Isographs",
                     id=self.ids.isographs_tab(aio),
@@ -322,8 +321,8 @@ class RedoxThermoCSPAIO(html.Div):
                 dcc.Tab(
                     children=[
                         html.Br(),
-                        html.Div(id = ids.energy_analysis_mount(aio)),
-                        dcc.Store(id = ids.energy_analysis_load(aio), data=False), 
+                        html.Div(id=self.ids.energy_analysis_mount(aio)),
+                        dcc.Store(id=self.ids.energy_analysis_load(aio), data=False),
                     ],
                     label="Energy Analysis",
                     id=self.ids.energy_analysis_tab(aio),
@@ -988,9 +987,7 @@ class RedoxThermoCSPAIO(html.Div):
                     [
                         html.Div(
                             ctl.Loading(
-                                dcc.Graph(
-                                    id=cls.ids.enera_graph(aio), figure=enera_fig
-                                )
+                                dcc.Graph(id=cls.ids.enera_graph(aio), figure=enera_fig)
                             )
                         ),
                         html.Br(),
@@ -1525,7 +1522,6 @@ def enera_fig_gen(
     steam_h_rec=0.8,
     param_disp="kJ/mol of product",
 ):
-
     def get_energy_data(
         en_dat,
         data_source="Theoretical",
@@ -1593,7 +1589,7 @@ def enera_fig_gen(
         title = data[0]["title"]
         yaxis_title = data[0]["yaxis_title"]
     except KeyError:
-        title, yaxis_title = None, None
+        title, yaxis_title = None, None  # noqa: F841
 
     bardata = []
     for n, slices in enumerate(y):
@@ -1748,7 +1744,9 @@ def query_mp_contribs_energy_analysis(
 
 
 def get_figure(figure_number, theo_data, compstr, constant=None, rng=None, delta=None):
-    def get_isograph_data(theo_data, _EXP_DATA, compstr, plottype, constant, rng, delt):
+    def get_isograph_data(
+        theo_data, _EXP_DATA, compstr, plottype, constant, rng, delta
+    ):
         try:
             pars = ID.init_isographs(theo_data, _EXP_DATA, compstr=compstr)[1]
             Iso_I = Iso(compstr, plottype, constant, rng)
@@ -1757,7 +1755,7 @@ def get_figure(figure_number, theo_data, compstr, constant=None, rng=None, delta
                 result = Iso_I.enthalpy_entropy(pars=pars, payload=payload, x_val=x_val)
             elif plottype == "ellingham":
                 result = Iso_I.ellingham(
-                    pars=pars, payload=payload, x_val=x_val, delt=delt
+                    pars=pars, payload=payload, x_val=x_val, delta=delta
                 )
             else:
                 result = Iso_I.isographs(pars=pars, payload=payload, x_val=x_val)
