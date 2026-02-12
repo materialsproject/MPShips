@@ -2,6 +2,8 @@ import crystal_toolkit.components as ctc
 import crystal_toolkit.helpers.layouts as ctl
 import dash
 import dash_ag_grid as dag
+import gzip
+import json
 import logging
 import numpy as np
 import pandas as pd
@@ -9,10 +11,9 @@ import plotly.graph_objects as go
 import warnings
 import os.path
 import uuid
-from dash import callback, dcc, html, MATCH, Patch
+from dash import callback, dcc, html, MATCH, Patch, State, no_update
 from dash.dependencies import Input, Output
 from dash.exceptions import PreventUpdate
-from monty.serialization import loadfn
 from mpships.redox_thermo_csp.redox_views import InitData as ID
 from mpships.redox_thermo_csp.redox_views import Isographs as Iso
 from mpships.redox_thermo_csp.redox_views import energy_analysis
@@ -27,7 +28,10 @@ logger = logging.getLogger(__name__)
 
 
 # Load the JSON file
-_EXP_DATA = loadfn(os.path.join(os.path.dirname(__file__), "exp_data.json"))
+with gzip.open(
+    os.path.join(os.path.dirname(__file__), "exp_data.json.gz"), "r"
+) as _data_file:
+    _EXP_DATA = json.load(_data_file)
 
 ISOGRAPHS_TOOLTIPS = {
     "Isotherm": "Shows the non-stoichiometry δ as a function of the oxygen partial pressure pO\N{SUPERSCRIPT TWO} (in bar) with fixed temperature T (in K)",
@@ -40,7 +44,6 @@ ISOGRAPHS_TOOLTIPS = {
 
 
 class RedoxThermoCSPAIO(html.Div):
-
     class ids:
         # define all components' ids here
 
@@ -57,6 +60,16 @@ class RedoxThermoCSPAIO(html.Div):
             "aio": aio,
             "subcomponents": "isograph_information",
         }
+        isographs_load = lambda aio: {
+            "component": "RedoxThermoCSPAIO",
+            "aio": aio,
+            "subcomponents": "isographs_load",
+        }
+        isographs_mount = lambda aio: {
+            "component": "RedoxThermoCSPAIO",
+            "aio": aio,
+            "subcomponents": "isographs_mount",
+        }
         isographs_tab = lambda aio: {
             "component": "RedoxThermoCSPAIO",
             "aio": aio,
@@ -66,6 +79,16 @@ class RedoxThermoCSPAIO(html.Div):
             "component": "RedoxThermoCSPAIO",
             "aio": aio,
             "subcomponents": "energy_analysis_tab",
+        }
+        energy_analysis_mount = lambda aio: {
+            "component": "RedoxThermoCSPAIO",
+            "aio": aio,
+            "subcomponents": "energy_analysis_mount",
+        }
+        energy_analysis_load = lambda aio: {
+            "component": "RedoxThermoCSPAIO",
+            "aio": aio,
+            "subcomponents": "energy_analysis_load",
         }
         tabs = lambda aio: {
             "component": "RedoxThermoCSPAIO",
@@ -248,6 +271,26 @@ class RedoxThermoCSPAIO(html.Div):
 
     ids = ids
 
+    how_to_cite = ctl.MessageContainer(
+        [
+            ctl.MessageHeader("How to Cite"),
+            ctl.MessageBody(
+                dcc.Markdown(
+                    """
+                        Please cite these publications if this data is useful for your work.
+                        * [Perovskite Materials Design for Two-step Solar thermochemical Redox Cycles](https://doi.org/10.13140/RG.2.2.17964.92800)
+                        * [Materials design of perovskite solid solutions for thermochemical applications](https://doi.org/10.1039/C9EE00085B)
+                        * [Redox behavior of solid solutions in the SrFe1-xCuxO3-δ system for application in thermochemical oxygen storage and air separation] (https://doi.org/10.1002/ente.201800554)
+                        * [Redox thermodynamics and phase composition in the system SrFeO3−δ — SrMnO3−δ.](https://doi.org/10.1016/j.ssi.2017.06.014)
+                        * [Statistical thermodynamics of non-stoichiometric ceria and ceria zirconia solid solutions](https://doi.org/10.1039/c6cp03158g)
+                        * [Formation of Na0.9Mo6O17 in a Solid-Phase Process. Transformations of a Hydrated Soldium Molybdenum Bronze, Na0.23(H2O)0.78MoO3, with Heat Treatments in a Nitrogen Atmosphere](https://doi.org/10.1246/bcsj.64.161)
+                    """
+                )
+            ),
+        ],
+        kind="info",
+    )
+
     def __init__(self, aio=None, *args, **kwargs):
         # define the layout here and put the layout inside of:
         # "super().__init__(children=[<< put layout here>>], **kwargs)"
@@ -267,32 +310,13 @@ class RedoxThermoCSPAIO(html.Div):
         # layout
         ##########################
 
-        self.how_to_cite = ctl.MessageContainer(
-            [
-                ctl.MessageHeader("How to Cite"),
-                ctl.MessageBody(
-                    dcc.Markdown(
-                        """
-                            Please cite these publications if this data is useful for your work.
-                            * [Perovskite Materials Design for Two-step Solar thermochemical Redox Cycles](https://doi.org/10.13140/RG.2.2.17964.92800)
-                            * [Materials design of perovskite solid solutions for thermochemical applications](https://doi.org/10.1039/C9EE00085B)
-                            * [Redox behavior of solid solutions in the SrFe1-xCuxO3-δ system for application in thermochemical oxygen storage and air separation] (https://doi.org/10.1002/ente.201800554)
-                            * [Redox thermodynamics and phase composition in the system SrFeO3−δ — SrMnO3−δ.](https://doi.org/10.1016/j.ssi.2017.06.014)
-                            * [Statistical thermodynamics of non-stoichiometric ceria and ceria zirconia solid solutions](https://doi.org/10.1039/c6cp03158g)
-                            * [Formation of Na0.9Mo6O17 in a Solid-Phase Process. Transformations of a Hydrated Soldium Molybdenum Bronze, Na0.23(H2O)0.78MoO3, with Heat Treatments in a Nitrogen Atmosphere](https://doi.org/10.1246/bcsj.64.161)
-                        """
-                    )
-                ),
-            ],
-            kind="info",
-        )
-
         tabs = dcc.Tabs(
             [
                 dcc.Tab(
                     children=[
                         html.Br(),
-                        self.get_isographs_layout(aio),
+                        html.Div(id=self.ids.isographs_mount(aio)),
+                        dcc.Store(id=self.ids.isographs_load(aio), data=False),
                     ],
                     label="Isographs",
                     id=self.ids.isographs_tab(aio),
@@ -301,7 +325,8 @@ class RedoxThermoCSPAIO(html.Div):
                 dcc.Tab(
                     children=[
                         html.Br(),
-                        self.get_energy_analysis_layout(aio),
+                        html.Div(id=self.ids.energy_analysis_mount(aio)),
+                        dcc.Store(id=self.ids.energy_analysis_load(aio), data=False),
                     ],
                     label="Energy Analysis",
                     id=self.ids.energy_analysis_tab(aio),
@@ -313,7 +338,8 @@ class RedoxThermoCSPAIO(html.Div):
         )
         super().__init__(children=[tabs], **kwargs)
 
-    def get_isographs_layout(self, aio):
+    @classmethod
+    def get_isographs_layout(cls, aio):
         """create layout for the isographs tab with the Dash AGGrid"""
 
         # lists of data for DataFrame
@@ -385,7 +411,7 @@ class RedoxThermoCSPAIO(html.Div):
         isographs_data_table = html.Div(
             [
                 dag.AgGrid(
-                    id=self.ids.isographs_data_table(aio),
+                    id=cls.ids.isographs_data_table(aio),
                     columnDefs=[
                         {
                             "field": x,
@@ -469,10 +495,10 @@ class RedoxThermoCSPAIO(html.Div):
 
         # sliders components for all the graphs
         temp_slider = get_slider(
-            id=self.ids.temp_slider(aio), min=500, max=1800, value=1000
+            id=cls.ids.temp_slider(aio), min=500, max=1800, value=1000
         )
         pressure_range = dcc.RangeSlider(
-            id=self.ids.pressure_range(aio),
+            id=cls.ids.pressure_range(aio),
             min=-7,
             max=3,
             value=[-5, 1],
@@ -485,7 +511,7 @@ class RedoxThermoCSPAIO(html.Div):
         ]
 
         pressure_slider = dcc.Slider(
-            id=self.ids.pressure_slider(aio),
+            id=cls.ids.pressure_slider(aio),
             min=-7,
             max=4,
             value=0,
@@ -493,7 +519,7 @@ class RedoxThermoCSPAIO(html.Div):
             tooltip={"always_visible": False, "transform": "powerOfTen"},
         )
         temp_range_slider = get_slider(
-            id=self.ids.temp_range_slider(aio), min=500, max=1800, value=[700, 1400]
+            id=cls.ids.temp_range_slider(aio), min=500, max=1800, value=[700, 1400]
         )
         fig_1_sliders = [
             {"label": "Pressure (bar)", "component": pressure_slider},
@@ -501,10 +527,10 @@ class RedoxThermoCSPAIO(html.Div):
         ]
 
         redox_slider = get_slider(
-            id=self.ids.redox_slider(aio), min=0, max=0.5, value=0.3
+            id=cls.ids.redox_slider(aio), min=0, max=0.5, value=0.3
         )
         redox_temp_range_slider = get_slider(
-            id=self.ids.redox_temp_range(aio), min=500, max=1800, value=[700, 1400]
+            id=cls.ids.redox_temp_range(aio), min=500, max=1800, value=[700, 1400]
         )
         fig_2_sliders = [
             {"label": "Redox δ", "component": redox_slider},
@@ -512,23 +538,23 @@ class RedoxThermoCSPAIO(html.Div):
         ]
 
         dH_temp_slider = get_slider(
-            id=self.ids.dH_temp_slider(aio), min=100, max=2000, value=500
+            id=cls.ids.dH_temp_slider(aio), min=100, max=2000, value=500
         )
         fig_3_sliders = [{"label": "Redox δ", "component": dH_temp_slider}]
 
         dS_temp_slider = get_slider(
-            id=self.ids.dS_temp_slider(aio), min=100, max=2000, value=500
+            id=cls.ids.dS_temp_slider(aio), min=100, max=2000, value=500
         )
         fig_4_sliders = [{"label": "Temperature (K)", "component": dS_temp_slider}]
 
         elling_redox_slider = get_slider(
-            id=self.ids.elling_redox_slider(aio), min=0, max=0.5, value=0.3
+            id=cls.ids.elling_redox_slider(aio), min=0, max=0.5, value=0.3
         )
         elling_temp_range = get_slider(
-            id=self.ids.elling_temp_range(aio), min=200, max=2000, value=[400, 1500]
+            id=cls.ids.elling_temp_range(aio), min=200, max=2000, value=[400, 1500]
         )
         elling_pressure_slider = get_slider(
-            id=self.ids.elling_pressure_slider(aio), min=-20, max=10, value=0
+            id=cls.ids.elling_pressure_slider(aio), min=-20, max=10, value=0
         )
         fig_5_sliders = [
             {"label": "Redox δ", "component": elling_redox_slider},
@@ -555,7 +581,7 @@ class RedoxThermoCSPAIO(html.Div):
                                 },
                             ),
                             dcc.Input(
-                                id=self.ids.quick_filter(aio),
+                                id=cls.ids.quick_filter(aio),
                                 placeholder="e.g. SrFeO3",
                                 style={
                                     "font-size": "1.25rem",
@@ -610,7 +636,7 @@ class RedoxThermoCSPAIO(html.Div):
                     [
                         isographs_data_table,
                         ctl.H3(
-                            id=self.ids.isograph_information(aio),
+                            id=cls.ids.isograph_information(aio),
                             style={
                                 "padding-top": "24px",
                             },
@@ -622,13 +648,13 @@ class RedoxThermoCSPAIO(html.Div):
                                         get_plot(
                                             plot_title="Isotherm",
                                             plot={},
-                                            plot_id=self.ids.isotherm(aio),
+                                            plot_id=cls.ids.isotherm(aio),
                                             sliders=fig_0_sliders,
                                         ),
                                         get_plot(
                                             plot_title="Enthalpy (dH)",
                                             plot={},
-                                            plot_id=self.ids.enthalpy(aio),
+                                            plot_id=cls.ids.enthalpy(aio),
                                             sliders=fig_3_sliders,
                                         ),
                                     ]
@@ -638,13 +664,13 @@ class RedoxThermoCSPAIO(html.Div):
                                         get_plot(
                                             plot_title="Isobar",
                                             plot={},
-                                            plot_id=self.ids.isobar(aio),
+                                            plot_id=cls.ids.isobar(aio),
                                             sliders=fig_1_sliders,
                                         ),
                                         get_plot(
                                             plot_title="Entropy (dS)",
                                             plot={},
-                                            plot_id=self.ids.entropy(aio),
+                                            plot_id=cls.ids.entropy(aio),
                                             sliders=fig_4_sliders,
                                         ),
                                     ]
@@ -654,13 +680,13 @@ class RedoxThermoCSPAIO(html.Div):
                                         get_plot(
                                             plot_title="Isoredox",
                                             plot={},
-                                            plot_id=self.ids.isoredox(aio),
+                                            plot_id=cls.ids.isoredox(aio),
                                             sliders=fig_2_sliders,
                                         ),
                                         get_plot(
                                             plot_title="Ellingham",
                                             plot={},
-                                            plot_id=self.ids.ellingham(aio),
+                                            plot_id=cls.ids.ellingham(aio),
                                             sliders=fig_5_sliders,
                                         ),
                                     ]
@@ -669,15 +695,16 @@ class RedoxThermoCSPAIO(html.Div):
                         ),
                     ]
                 ),
-                self.how_to_cite,
+                cls.how_to_cite,
             ],
         )
 
-    def get_energy_analysis_layout(self, aio):
+    @classmethod
+    def get_energy_analysis_layout(cls, aio):
         # create the layout that will appear in the "energy_analysis_tab"
         enera_fig = enera_fig_gen(en_dat=query_mp_contribs_energy_analysis())
         t_ox_slider = dcc.Slider(
-            id=self.ids.t_ox_slider(aio),
+            id=cls.ids.t_ox_slider(aio),
             min=350,
             max=800,
             step=None,
@@ -694,7 +721,7 @@ class RedoxThermoCSPAIO(html.Div):
             },
         )
         t_red_slider = dcc.Slider(
-            id=self.ids.t_red_slider(aio),
+            id=cls.ids.t_red_slider(aio),
             min=600,
             max=1400,
             step=None,
@@ -712,7 +739,7 @@ class RedoxThermoCSPAIO(html.Div):
             },
         )
         p_ox_slider = dcc.Slider(
-            id=self.ids.p_ox_slider(aio),
+            id=cls.ids.p_ox_slider(aio),
             min=-20,
             max=-3,
             step=None,
@@ -731,7 +758,7 @@ class RedoxThermoCSPAIO(html.Div):
             },
         )
         p_red_slider = dcc.Slider(
-            id=self.ids.p_red_slider(aio),
+            id=cls.ids.p_red_slider(aio),
             min=-8,
             max=0,
             step=None,
@@ -773,7 +800,7 @@ class RedoxThermoCSPAIO(html.Div):
                                             t_ox_slider,
                                             html.Br(),
                                             html.B(
-                                                id=self.ids.text_p_ox(aio),
+                                                id=cls.ids.text_p_ox(aio),
                                                 children="Oxidation Partial Pressure of Oxygen (bar)",
                                                 style={"font-size": "20px"},
                                             ),
@@ -811,7 +838,7 @@ class RedoxThermoCSPAIO(html.Div):
                                                 style={"font-size": "20px"},
                                             ),
                                             dcc.Slider(
-                                                id=self.ids.h_rec_solid(aio),
+                                                id=cls.ids.h_rec_solid(aio),
                                                 min=0,
                                                 max=0.99,
                                                 value=0.6,
@@ -829,7 +856,7 @@ class RedoxThermoCSPAIO(html.Div):
                                                     ctl.Column(
                                                         [
                                                             dcc.Checklist(
-                                                                id=self.ids.mech_env(
+                                                                id=cls.ids.mech_env(
                                                                     aio
                                                                 ),
                                                                 options=[
@@ -850,7 +877,7 @@ class RedoxThermoCSPAIO(html.Div):
                                                         [
                                                             html.B("or define "),
                                                             dcc.Input(
-                                                                id=self.ids.pump_ener(
+                                                                id=cls.ids.pump_ener(
                                                                     aio
                                                                 ),
                                                                 type="number",
@@ -875,7 +902,7 @@ class RedoxThermoCSPAIO(html.Div):
                                                         style={"font-size": "20px"},
                                                     ),
                                                     dcc.Slider(
-                                                        id=self.ids.w_feed(aio),
+                                                        id=cls.ids.w_feed(aio),
                                                         min=5,
                                                         max=600,
                                                         value=200,
@@ -895,7 +922,7 @@ class RedoxThermoCSPAIO(html.Div):
                                                         style={"font-size": "20px"},
                                                     ),
                                                     dcc.Slider(
-                                                        id=self.ids.w_hrec(aio),
+                                                        id=cls.ids.w_hrec(aio),
                                                         min=0,
                                                         max=0.99,
                                                         value=0.8,
@@ -932,7 +959,7 @@ class RedoxThermoCSPAIO(html.Div):
                                         html.Div(
                                             [
                                                 dcc.Dropdown(
-                                                    id=self.ids.process(aio),
+                                                    id=cls.ids.process(aio),
                                                     options=[
                                                         {
                                                             "label": "Air Separation / Oxygen pumping / Oxygen storage",
@@ -958,15 +985,13 @@ class RedoxThermoCSPAIO(html.Div):
                         ctl.Column([html.Div("")]),
                     ]
                 ),
-                html.Div(id=self.ids.variable_input(aio), children=contents),
+                html.Div(id=cls.ids.variable_input(aio), children=contents),
                 html.Br(),
                 ctl.Box(
                     [
                         html.Div(
                             ctl.Loading(
-                                dcc.Graph(
-                                    id=self.ids.enera_graph(aio), figure=enera_fig
-                                )
+                                dcc.Graph(id=cls.ids.enera_graph(aio), figure=enera_fig)
                             )
                         ),
                         html.Br(),
@@ -974,7 +999,7 @@ class RedoxThermoCSPAIO(html.Div):
                             [
                                 html.B(children="Parameters to display"),
                                 dcc.Dropdown(
-                                    id=self.ids.param_disp(aio),
+                                    id=cls.ids.param_disp(aio),
                                     options=[
                                         {
                                             "label": "kJ/mol redox material",
@@ -1034,7 +1059,7 @@ class RedoxThermoCSPAIO(html.Div):
                             children=[
                                 html.B("Max number of materials to display"),
                                 dcc.Slider(
-                                    id=self.ids.no_disp(aio),
+                                    id=cls.ids.no_disp(aio),
                                     min=1,
                                     max=250,
                                     step=1,
@@ -1084,7 +1109,7 @@ class RedoxThermoCSPAIO(html.Div):
                         ]
                     )
                 ),
-                self.how_to_cite,
+                cls.how_to_cite,
             ]
         )
         return layout
@@ -1094,6 +1119,34 @@ class RedoxThermoCSPAIO(html.Div):
     ######################
     # Isographs Callbacks
     ######################
+
+    @callback(
+        Output(ids.isographs_mount(MATCH), "children"),
+        Output(ids.isographs_load(MATCH), "data"),
+        Input(ids.tabs(MATCH), "value"),
+        State(ids.tabs(MATCH), "id"),
+        State(ids.isographs_load(MATCH), "data"),
+        prevent_initial_call=False,  # run on first page load
+    )
+    def load_isographs_with_page(active_tab, tabs_id, loaded):
+        if loaded or active_tab != "isographs":
+            return no_update, loaded
+        return RedoxThermoCSPAIO.get_isographs_layout(tabs_id["aio"]), True
+
+    @callback(
+        Output(ids.energy_analysis_mount(MATCH), "children"),
+        Output(ids.energy_analysis_load(MATCH), "data"),
+        Input(ids.tabs(MATCH), "value"),
+        State(ids.tabs(MATCH), "id"),
+        State(ids.energy_analysis_load(MATCH), "data"),
+        prevent_initial_call=False,
+    )
+    def load_energy_analysis_at_page_load(active_tab, tabs_id, loaded):
+        # `active_tab` == "isographs" to load with isographs component
+        # this was initial behavior of the app, can change if needed
+        if loaded or active_tab != "isographs":
+            return no_update, loaded
+        return RedoxThermoCSPAIO.get_energy_analysis_layout(tabs_id["aio"]), True
 
     @callback(
         Output(ids.isographs_data_table(MATCH), "dashGridOptions"),
@@ -1107,6 +1160,7 @@ class RedoxThermoCSPAIO(html.Div):
     @callback(
         Output(ids.isograph_information(MATCH), "children"),
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
+        prevent_initial_call=True,
     )
     def isograph_information_text(row):
         return f"Showing Isographs for {unicodeify(row[0]['Oxidized Composition'])}"
@@ -1116,6 +1170,7 @@ class RedoxThermoCSPAIO(html.Div):
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
         Input(ids.temp_slider(MATCH), "value"),
         Input(ids.pressure_range(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_0(row, temp_slider, pressure_range):
         compstr = row[0]["Theoretical Composition"]
@@ -1133,6 +1188,7 @@ class RedoxThermoCSPAIO(html.Div):
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
         Input(ids.pressure_slider(MATCH), "value"),
         Input(ids.temp_range_slider(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_1(row, pressure_slider, temp_range_slider):
         compstr = row[0]["Theoretical Composition"]
@@ -1150,6 +1206,7 @@ class RedoxThermoCSPAIO(html.Div):
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
         Input(ids.redox_slider(MATCH), "value"),
         Input(ids.redox_temp_range(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_2(row, redox_slider, redox_temp_range):
         compstr = row[0]["Theoretical Composition"]
@@ -1166,6 +1223,7 @@ class RedoxThermoCSPAIO(html.Div):
         Output(ids.enthalpy(MATCH), "figure"),
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
         Input(ids.dH_temp_slider(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_3(row, dH_temp_slider):
         compstr = row[0]["Theoretical Composition"]
@@ -1181,6 +1239,7 @@ class RedoxThermoCSPAIO(html.Div):
         Output(ids.entropy(MATCH), "figure"),
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
         Input(ids.dS_temp_slider(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_4(row, dS_temp_slider):
         compstr = row[0]["Theoretical Composition"]
@@ -1198,6 +1257,7 @@ class RedoxThermoCSPAIO(html.Div):
         Input(ids.elling_redox_slider(MATCH), "value"),
         Input(ids.elling_temp_range(MATCH), "value"),
         Input(ids.elling_pressure_slider(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_5(
         row,
@@ -1473,7 +1533,6 @@ def enera_fig_gen(
     steam_h_rec=0.8,
     param_disp="kJ/mol of product",
 ):
-
     def get_energy_data(
         en_dat,
         data_source="Theoretical",
@@ -1541,7 +1600,7 @@ def enera_fig_gen(
         title = data[0]["title"]
         yaxis_title = data[0]["yaxis_title"]
     except KeyError:
-        title, yaxis_title = None, None
+        title, yaxis_title = None, None  # noqa: F841
 
     bardata = []
     for n, slices in enumerate(y):
@@ -1696,7 +1755,9 @@ def query_mp_contribs_energy_analysis(
 
 
 def get_figure(figure_number, theo_data, compstr, constant=None, rng=None, delta=None):
-    def get_isograph_data(theo_data, _EXP_DATA, compstr, plottype, constant, rng, delt):
+    def get_isograph_data(
+        theo_data, _EXP_DATA, compstr, plottype, constant, rng, delta
+    ):
         try:
             pars = ID.init_isographs(theo_data, _EXP_DATA, compstr=compstr)[1]
             Iso_I = Iso(compstr, plottype, constant, rng)
@@ -1705,7 +1766,7 @@ def get_figure(figure_number, theo_data, compstr, constant=None, rng=None, delta
                 result = Iso_I.enthalpy_entropy(pars=pars, payload=payload, x_val=x_val)
             elif plottype == "ellingham":
                 result = Iso_I.ellingham(
-                    pars=pars, payload=payload, x_val=x_val, delt=delt
+                    pars=pars, payload=payload, x_val=x_val, delta=delta
                 )
             else:
                 result = Iso_I.isographs(pars=pars, payload=payload, x_val=x_val)

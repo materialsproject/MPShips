@@ -1,8 +1,8 @@
 # MP Ships
 
-Welcome to **MP Ships**—a repository dedicated to hosting and sharing contributed apps as modules within the Materials Project ecosystem. 
+Welcome to **MP Ships**—a repository dedicated to hosting and sharing contributed apps as modules within the Materials Project ecosystem.
 This repository serves as a central hub for developers and researchers to contribute, discover, and collaborate on applications built using the [Dash](https://dash.plotly.com/) framework.
-It provides a structured framework and environment for you to develop your app, test it locally, and finally integrate it within the MP website. 
+It provides a structured framework and environment for you to develop your app, test it locally, and finally integrate it within the MP website.
 
 ### Features
 
@@ -20,5 +20,5 @@ To start using or contributing to MP Ships, follow these steps:
    cd mpships
 
 2. **Example apps**
-   
-   Please see this [notebook](mpships/src/examples/Contribute_MPApp.ipynb) before you develop your first MP App. 
+
+   Please see this [notebook](mpships/src/examples/Contribute_MPApp.ipynb) before you develop your first MP App.

@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 import re
-import pandas as pd
 import numpy as np
 from itertools import groupby
 from pymatgen.core import Structure
 import pymatgen.core.periodic_table as ptable
 from pymatgen.core.composition import Composition
-from pymatgen.analysis.elasticity import *
+from pymatgen.analysis.elasticity import ElasticTensor
 from pymatgen.analysis.reaction_calculator import ComputedReaction
 from pymatgen.core.units import FloatWithUnit
 from scipy.constants import pi, R
@@ -42,10 +41,10 @@ def add_comp_one(compstr):
     samp_new = ""
     for k in range(len(sample)):
         spl_samp = re.sub(r"([A-Z])", r" \1", sample[k]).split()
-        for l in range(len(spl_samp)):
-            if spl_samp[l][-1].isalpha() and spl_samp[l][-1] != "x":
-                spl_samp[l] = spl_samp[l] + "1"
-            samp_new += spl_samp[l]
+        for ell in range(len(spl_samp)):
+            if spl_samp[ell][-1].isalpha() and spl_samp[ell][-1] != "x":
+                spl_samp[ell] = spl_samp[ell] + "1"
+            samp_new += spl_samp[ell]
 
     return samp_new
 
@@ -142,7 +141,7 @@ def dh_ds(delta, s_th, p):
     dh = enth_arctan(d_delta, *(dh_pars)) * 1000.0
     ds_pars = [p["fit_par_ent"][c] for c in "abc"]
 
-    # distinguish two differnt entropy fits
+    # distinguish two different entropy fits
     fit_type = p["fit_type_entr"]
     if fit_type == "Solid_Solution":
         ds_pars.append(p["act_mat"])
@@ -428,7 +427,6 @@ def entr_con_mixed(temp, p_o2_l, dh_1, dh_2, act):
 
 
 def get_mpids_comps_perov_brownm(compstr):
-
     compstr = compstr.split("O")[0] + "Ox"
     find_struct = find_structures(compstr=compstr)
 
@@ -459,24 +457,24 @@ def split_comp(compstr):
 
     compstr_spl = ["".join(g) for _, g in groupby(str(compstr), str.isalpha)]
 
-    for l in range(len(compstr_spl)):
+    for ell in range(len(compstr_spl)):
         try:
             if (
-                ptable.Element(compstr_spl[l]).is_alkaline
-                or ptable.Element(compstr_spl[l]).is_alkali
-                or ptable.Element(compstr_spl[l]).is_rare_earth
+                ptable.Element(compstr_spl[ell]).is_alkaline
+                or ptable.Element(compstr_spl[ell]).is_alkali
+                or ptable.Element(compstr_spl[ell]).is_rare_earth
             ):
                 if am_1 is None:
-                    am_1 = [compstr_spl[l], float(compstr_spl[l + 1])]
+                    am_1 = [compstr_spl[ell], float(compstr_spl[ell + 1])]
                 elif am_2 is None:
-                    am_2 = [compstr_spl[l], float(compstr_spl[l + 1])]
-            if ptable.Element(compstr_spl[l]).is_transition_metal and not (
-                ptable.Element(compstr_spl[l]).is_rare_earth
+                    am_2 = [compstr_spl[ell], float(compstr_spl[ell + 1])]
+            if ptable.Element(compstr_spl[ell]).is_transition_metal and not (
+                ptable.Element(compstr_spl[ell]).is_rare_earth
             ):
                 if tm_1 is None:
-                    tm_1 = [compstr_spl[l], float(compstr_spl[l + 1])]
+                    tm_1 = [compstr_spl[ell], float(compstr_spl[ell + 1])]
                 elif tm_2 is None:
-                    tm_2 = [compstr_spl[l], float(compstr_spl[l + 1])]
+                    tm_2 = [compstr_spl[ell], float(compstr_spl[ell + 1])]
         # stoichiometries raise ValueErrors in pymatgen .is_alkaline etc., ignore these errors and skip that entry
         except ValueError:
             pass
@@ -665,23 +663,18 @@ def calc_dh_endm(compstr):
 
     endm = find_endmembers(compstr)
     dh_1 = find_theo_redenth(endm[0]) * endm[4] + find_theo_redenth(endm[1]) * endm[5]
+    # TODO Should this be (note the missing `endm[3]`)?
+    # dh_2 = find_theo_redenth(endm[2]) * endm[4] + find_theo_redenth(endm[3]) * endm[5]
     dh_2 = find_theo_redenth(endm[2]) * endm[4] + find_theo_redenth(endm[2]) * endm[5]
 
-    if dh_1 > dh_2:
-        dh_max = dh_1
-        dh_min = dh_2
-    else:
-        dh_max = dh_2
-        dh_min = dh_1
-
-    return dh_max, dh_min
+    return max(dh_1, dh_2), min(dh_1, dh_2)
 
 
 def redenth_act(compstr):
     """
     Finds redox enthalpies for a perovskite solid solution, both for the solid solution and for the endmembers
     dh_min and dh_max are based on the redox enthalpy of the endmembers. Ideally, the theoretical redox enthalpy of
-    the solid solution corresponds to the weigthed average of dh_min and dh_max. If not, and "combined" is selected
+    the solid solution corresponds to the weighted average of dh_min and dh_max. If not, and "combined" is selected
     in the data use variable, dh_min and dh_max are corrected using the actual theoretical redox enthalpy of the
     solid solution.
     :return:
@@ -708,7 +701,7 @@ def redenth_act(compstr):
         pass
 
     theo_solid_solution = None
-    # calcualte redox enthalpies for complete perovskite -> brownmillerite reduction
+    # calculate redox enthalpies for complete perovskite -> brownmillerite reduction
     try:
         theo_solid_solution = find_theo_redenth(compstr)
     # this happens if either the brownmillerite or the perovskite data is not on the Materials Project
@@ -832,7 +825,7 @@ def find_theo_redenth(compstr):
     :return:
     red_enth:  redox enthalpy in kJ/mol O
     """
-    compstr_perovskite = compstr.split("O")[0] + "O3"
+    compstr.split("O")[0] + "O3"
 
     comp_spl = split_comp(compstr)
     chem_sys = ""
@@ -1112,14 +1105,14 @@ def dhf_h2o(t_ox):
         f = -272.1797
 
     t_1000 = t_ox / 1000
-    hform = a * t_1000
-    hform += 0.5 * b * (t_1000**2)
-    hform += (1 / 3) * c * (t_1000**3)
-    hform += (1 / 4) * c * (t_1000**4)
-    hform += -e / t_1000
-    hform += f
-
-    return hform
+    return (
+        a * t_1000
+        + 0.5 * b * (t_1000**2)
+        + (1 / 3) * c * (t_1000**3)
+        + (1 / 4) * d * (t_1000**4)
+        - e / t_1000
+        + f
+    )
 
 
 def dh_co_co2(t_ox):
@@ -1151,13 +1144,14 @@ def dh_co_co2(t_ox):
         e = -6.447293
         f = -425.9186
 
-    hco2 = a * t_1000
-    hco2 += 0.5 * b * (t_1000**2)
-    hco2 += (1 / 3) * c * (t_1000**3)
-    hco2 += (1 / 4) * c * (t_1000**4)
-    hco2 += -e / t_1000
-    hco2 += f
-
+    hco2 = (
+        a * t_1000
+        + 0.5 * b * (t_1000**2)
+        + (1 / 3) * c * (t_1000**3)
+        + (1 / 4) * d * (t_1000**4)
+        - e / t_1000
+        + f
+    )
     # CO
     if t_ox <= 1300:
         a = 25.56759
@@ -1175,12 +1169,14 @@ def dh_co_co2(t_ox):
         e = -3.282780
         f = -127.8375
 
-    hco = a * t_1000
-    hco += 0.5 * b * (t_1000**2)
-    hco += (1 / 3) * c * (t_1000**3)
-    hco += (1 / 4) * c * (t_1000**4)
-    hco += -e / t_1000
-    hco += f
+    hco = (
+        a * t_1000
+        + 0.5 * b * (t_1000**2)
+        + (1 / 3) * c * (t_1000**3)
+        + (1 / 4) * d * (t_1000**4)
+        - e / t_1000
+        + f
+    )
 
     return hco2 - hco
 
@@ -1231,7 +1227,7 @@ def energy_on_the_fly(
                         http://www.journal.csj.jp/doi/pdf/10.1246/bcsj.64.161)
 
                         By default, this is always True and there is no way in the user front-end to change this.
-                        However, this could be changed manually by the developers, if neccessary.
+                        However, this could be changed manually by the developers, if necessary.
     """
     if process == "Air Separation":
         p_ox_wscs = 1
@@ -1263,7 +1259,7 @@ def energy_on_the_fly(
         mass_redox_i = rd["mass_redox"]
         mol_mass_ox = rd["mol_mass_ox"]
         mol_prod_mol_red = rd["mol_prod_mol_red"]
-        p_ox = rd["p_ox"]
+        # p_ox = rd["p_ox"] # TODO: is this supposed to be used anywhere?
         p_red = rd["p_red"]
         compstr = rd["compstr"]
         prodstr = rd["prodstr"]
@@ -1465,7 +1461,7 @@ def energy_on_the_fly(
     )
 
     # create dictionary with results
-    dict_result = {
+    return {
         "kJ/mol redox material": result_val_ener_i,
         "kJ/kg redox material": result_val_per_kg_redox,
         "Wh/kg redox material": result_val_per_kg_wh_redox,
@@ -1481,5 +1477,3 @@ def energy_on_the_fly(
         "Change in non-stoichiometry between T_ox and T_red": result_val_delta_redox,
         "Mass change between T_ox and T_red": result_val_mass_change,
     }
-
-    return dict_result
