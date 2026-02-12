@@ -1160,6 +1160,7 @@ class RedoxThermoCSPAIO(html.Div):
     @callback(
         Output(ids.isograph_information(MATCH), "children"),
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
+        prevent_initial_call=True,
     )
     def isograph_information_text(row):
         return f"Showing Isographs for {unicodeify(row[0]['Oxidized Composition'])}"
@@ -1169,6 +1170,7 @@ class RedoxThermoCSPAIO(html.Div):
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
         Input(ids.temp_slider(MATCH), "value"),
         Input(ids.pressure_range(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_0(row, temp_slider, pressure_range):
         compstr = row[0]["Theoretical Composition"]
@@ -1186,6 +1188,7 @@ class RedoxThermoCSPAIO(html.Div):
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
         Input(ids.pressure_slider(MATCH), "value"),
         Input(ids.temp_range_slider(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_1(row, pressure_slider, temp_range_slider):
         compstr = row[0]["Theoretical Composition"]
@@ -1203,6 +1206,7 @@ class RedoxThermoCSPAIO(html.Div):
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
         Input(ids.redox_slider(MATCH), "value"),
         Input(ids.redox_temp_range(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_2(row, redox_slider, redox_temp_range):
         compstr = row[0]["Theoretical Composition"]
@@ -1219,6 +1223,7 @@ class RedoxThermoCSPAIO(html.Div):
         Output(ids.enthalpy(MATCH), "figure"),
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
         Input(ids.dH_temp_slider(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_3(row, dH_temp_slider):
         compstr = row[0]["Theoretical Composition"]
@@ -1234,6 +1239,7 @@ class RedoxThermoCSPAIO(html.Div):
         Output(ids.entropy(MATCH), "figure"),
         Input(ids.isographs_data_table(MATCH), "selectedRows"),
         Input(ids.dS_temp_slider(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_4(row, dS_temp_slider):
         compstr = row[0]["Theoretical Composition"]
@@ -1251,6 +1257,7 @@ class RedoxThermoCSPAIO(html.Div):
         Input(ids.elling_redox_slider(MATCH), "value"),
         Input(ids.elling_temp_range(MATCH), "value"),
         Input(ids.elling_pressure_slider(MATCH), "value"),
+        prevent_initial_call=True,
     )
     def update_fig_5(
         row,
