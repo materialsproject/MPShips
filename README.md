@@ -202,5 +202,6 @@ If your app needs a compatibility fix (for example, after a Materials Project AP
 - [ ] No hardcoded absolute paths in links, images, or iframes
 - [ ] Data is fetched through `get_rester()`
 - [ ] Dependencies are pinned (a `requirements.txt` with exact versions, or a lockfile)
+- [ ] No large blob files in the repository (datasets, model weights, videos, compiled binaries). If your app needs one, talk to the MP team first
 - [ ] The app runs locally with `python run_app.py`
 - [ ] The registry entry uses a full commit SHA, not a branch name
