@@ -10,16 +10,77 @@ MPShips is the platform for [contributed Dash apps](https://next-gen.materialspr
 
 ## Quick start
 
-1. Generate a project from the [MPShips cookiecutter template](https://github.com/materialsproject/mpships-app-boilerplate).
-2. Install dependencies in a virtual environment.
-3. If your app fetches data, set your API key (see [Fetching Materials Project data](#fetching-materials-project-data)).
-4. Run the app locally:
+### 1. Install cookiecutter
+
+```bash
+pip install cookiecutter
+```
+
+### 2. Create your app from the template
+
+```bash
+cookiecutter gh:minhsueh/mpships-app-boilerplate
+```
+
+Answer the prompts (your name, the app name, and so on). The template creates the project and sets up its virtual environment, so you don't need to install the required dependencies yourself.
+
+If your app needs additional dependencies, install them in the virtual environment and add them to `pyproject.toml`.
+
+### 3. Develop your app
+
+Edit the app class the template generated, using the three `ships_` hooks described in [Anatomy of an app](#anatomy-of-an-app). The template also includes example pages you can learn from.
+
+If your app fetches Materials Project data, set your API key first (see [Fetching Materials Project data](#fetching-materials-project-data)). Then run the app:
 
 ```bash
 python run_app.py
 ```
 
-Then open `http://127.0.0.1:8050/`.
+Open `http://127.0.0.1:8050/`.
+
+When it works, go through the [checklist](#checklist-before-you-submit) and push your app to its own **public** GitHub repository.
+
+### 4. Clone the MPShips registry
+
+You only need the registry, not the app source code that other contributors have submitted. Fork the MPShips repository on GitHub, then clone your fork with a sparse checkout:
+
+```bash
+git clone --filter=blob:none --depth 1 --sparse https://github.com/materialsproject/MPShips.git
+cd MPShips
+git sparse-checkout set registry
+```
+
+This downloads the latest commit and only the `registry/` folder.
+
+Prefer not to use git locally? Open `registry/registry.yaml` on [GitHub](https://github.com/materialsproject/MPShips/blob/mpships2/registry/registry.yaml) and use the pencil icon to edit it in the browser. GitHub creates the fork and the pull request for you.
+
+### 5. Submit a PR
+
+In your app's repository, get the full commit SHA of the version you want reviewed:
+
+```bash
+git rev-parse HEAD
+```
+
+Then, in your clone of the registry, add an entry to `registry/registry.yaml`:
+
+```yaml
+- name: my-app
+  upstream_repo: https://github.com/<you>/my-app
+  upstream_commit: <full 40-character commit SHA>
+  version: "1.0.0"
+  author: <your-github-username>
+  release_date: 2026-10-01
+  description: One-line description of what your app does.
+```
+
+Commit, push, and open a pull request against the MPShips repository:
+
+```bash
+git switch -c add-my-app
+git commit -am "Add my-app"
+git push -u origin add-my-app
+```
 
 ## Anatomy of an app
 
