@@ -3,6 +3,7 @@
 MPShips is the platform for [contributed Dash apps](https://next-gen.materialsproject.org/contributed-apps) on Materials Project. You write a normal Dash app by subclassing the `MPShipsApp` base class and filling in a few hooks. The MP team handles page registration, routing, and deployment.
 
 ## How it works
+![MPShips workflow: create your project from the template, build your app, submit it to the registry, then the MP team reviews and launches it](./docs/MPShips-flow.png)
 
 - Each app is a Python class that subclasses `MPShipsApp`.
 - For production, the MP team wraps your app in an isolated Docker container. You only write and test the app itself.
