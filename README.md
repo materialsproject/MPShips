@@ -247,9 +247,11 @@ Custom CSS and JS belong in your `assets/` folder, where Dash loads them automat
   upstream_repo: https://github.com/<you>/my-app
   upstream_commit: <full 40-character commit SHA>
   version: "1.0.0"
-  author: <your-github-username>
-  release_date: 2026-10-01
+  author: <authors name>
+  author_git: <your-github-username>
+  registry_date: <registry date>
   description: One-line description of what your app does.
+  dois: [List of referencing dois]
 ```
 
 3. A maintainer reviews the code at that exact commit.
