@@ -22,21 +22,23 @@ MPShips is the platform for [contributed Dash apps](https://next-gen.materialspr
 pip install cookiecutter
 ```
 
-### 2. Create your app from the template
+### 2. Create your app from the [template](https://github.com/materialsproject/mpships-app-boilerplate)
 
 ```bash
 cookiecutter gh:minhsueh/mpships-app-boilerplate
 ```
 
-Answer the prompts (your name, the app name, and so on). The template creates the project and sets up its virtual environment, so you don't need to install the required dependencies yourself.
-
-If your app needs additional dependencies, install them in the virtual environment and add them to `pyproject.toml`.
+Answer the prompts (your name, the app name, and so on). The template will create the project and, if you choose to (recommended), set up a virtual environment for you, so you don’t need to install the required dependencies manually.
 
 ### 3. Develop your app
 
 Edit the app class the template generated, using the three `ships_` hooks described in [Anatomy of an app](#anatomy-of-an-app). The template also includes example pages you can learn from.
 
-If your app fetches Materials Project data, set your API key first (see [Fetching Materials Project data](#fetching-materials-project-data)). Then run the app:
+- If your app needs additional dependencies, install them in the virtual environment and add them to `pyproject.toml`.
+
+- If your app fetches Materials Project data, set your API key first (see [Fetching Materials Project data](#fetching-materials-project-data)). 
+
+Test running the app locally:
 
 ```bash
 python run_app.py
