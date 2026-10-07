@@ -6,7 +6,7 @@ MPShips is the platform for [contributed Dash apps](https://next-gen.materialspr
 ![MPShips workflow: create your project from the template, build your app, submit it to the registry, then the MP team reviews and launches it](./docs/MPShips-flow.png)
 
 **You**
-- Each app is a Python class that subclasses `MPShipsApp` (the hull).
+- Create your app by generating the hull from the template. This produces a basic app, which is a Python class that subclasses `MPShipsApp`.
 - You write and test the app locally.
 - You submit your app through the registry. See [Submit a PR](#5-submit-a-pr).
 
