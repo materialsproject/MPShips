@@ -119,6 +119,10 @@ class MyApp(MPShipsApp):
 | `ships_layout(self)` | **Yes** | Whenever the page renders | Return your Dash layout |
 | `ships_callbacks(self, app, cache)` | No | Once, after the app layout exists | Register callbacks with `@app.callback` |
 
+We expose only these three hooks to lower the barrier for developers who are relatively new to frontend development, while keeping as much freedom as possible. Advanced developers have room to go further. For example, if you want to add styling or static icons, put them in `assets/`. Dash loads CSS and JS from that folder automatically, and you can reference other files with `dash.get_asset_url()`.
+
+**However, additional frameworks may conflict with the MP infrastructure. Please consult the MP team for a smoother development experience, or report issues in the forum.**
+
 Values you set in `ships_setup` are available as `self.<name>` in `ships_layout` and `ships_callbacks`. Treat them as **read-only** (constants, configuration, data loaded once).
 
 Don't change `self` attributes from inside a callback. One running app serves many users, so that state would be shared between all of them. Keep per-user state in a `dcc.Store` (or pass it through callback inputs and outputs), as is standard Dash practice.
