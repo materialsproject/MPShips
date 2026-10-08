@@ -6,6 +6,7 @@ name: registry
 #   frozen         = that exact commit's files only (no git history), minus unnecessary files
 
 on:
+  workflow_dispatch:
   push:
     # GitHub does not allow variables in the trigger, so it fires for a push to any
     # branch that changes the registry. Every step below runs only on BRANCH.
