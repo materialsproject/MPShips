@@ -1,0 +1,86 @@
+name: registry
+
+# When a change to registry/registry.yaml is merged into the branch below,
+# freeze every new or changed app into app/<name>/.
+#   new or changed = a new name, or a different upstream_repo or upstream_commit
+#   frozen         = that exact commit's files only (no git history), minus unnecessary files
+
+on:
+  push:
+    # GitHub does not allow variables in the trigger, so it fires for a push to any
+    # branch that changes the registry. Every step below runs only on BRANCH.
+    paths: [registry/registry.yaml]
+
+concurrency:
+  group: registry-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BRANCH: mpships2   # the one place to change (use main later)
+
+jobs:
+  registry:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        if: github.ref_name == env.BRANCH
+        with:
+          fetch-depth: 0
+
+      - name: Clone and freeze new or changed apps
+        if: github.ref_name == env.BRANCH
+        env:
+          BASE: ${{ github.event.before }}
+          GIT_TERMINAL_PROMPT: "0"
+          GIT_LFS_SKIP_SMUDGE: "1"
+        run: |
+          set -euo pipefail
+
+          # registry.yaml as it was before this merge (empty list if there was none)
+          git show "$BASE:registry/registry.yaml" > /tmp/old.yaml 2>/dev/null || echo "[]" > /tmp/old.yaml
+          mkdir -p app
+
+          while read -r name repo sha; do
+            # skip apps whose repo and commit are both unchanged
+            old=$(NAME="$name" yq '.[] | select(.name == strenv(NAME)) | .upstream_repo + " " + .upstream_commit' /tmp/old.yaml)
+            if [ "$old" = "$repo $sha" ]; then
+              continue
+            fi
+
+            # safety: the name becomes a folder, and the repo and SHA go to git
+            [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "::error::invalid name: $name"; exit 1; }
+            [[ $repo =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "::error::invalid upstream_repo: $repo"; exit 1; }
+            [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid upstream_commit: $sha"; exit 1; }
+
+            echo "Freezing $name @ ${sha:0:7}"
+
+            # 1. clone exactly that commit into a temporary folder
+            tmp=$(mktemp -d)
+            git init -q "$tmp"
+            git -C "$tmp" fetch -q --depth 1 "$repo" "$sha"
+            git -C "$tmp" checkout -q FETCH_HEAD
+
+            # 2. freeze: drop git history and unnecessary files
+            rm -rf "$tmp/.git" "$tmp/.github" "$tmp/.circleci" "$tmp/.vscode" "$tmp/.idea"
+            find "$tmp" \( -name __pycache__ -o -name '*.pyc' -o -name .DS_Store \) -prune -exec rm -rf {} +
+
+            # 3. only now replace the old snapshot, so a failed fetch never removes it
+            rm -rf "app/$name"
+            mv "$tmp" "app/$name"
+          done < <(yq '.[] | .name + " " + .upstream_repo + " " + .upstream_commit' registry/registry.yaml)
+
+      - name: Commit and push snapshots
+        if: github.ref_name == env.BRANCH
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f app   # -f: keep files even if a .gitignore would skip them
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git commit -m "Archive approved apps from registry ${GITHUB_SHA::7}"
+          git pull --rebase origin "$BRANCH"
+          git push origin "HEAD:$BRANCH"
