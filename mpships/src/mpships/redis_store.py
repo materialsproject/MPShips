@@ -75,6 +75,14 @@ class redis_store:
         except Exception:
             logger.exception(
                 "Failed to load stored component data",
-                extra={"data_type": data_type, "hash_key": hash_key},
+                extra={
+                    # redis returns bytes (or None if the key is missing)
+                    "data_type": (
+                        data_type.decode(errors="replace")
+                        if isinstance(data_type, bytes)
+                        else data_type
+                    ),
+                    "hash_key": hash_key,
+                },
             )
             raise
