@@ -1993,12 +1993,12 @@ def reformat_isograph_data(compstr):
         timeout=SETTINGS.CONTRIBS_TIMEOUT,
     )
     if not isographs_contributions_resp["data"]:
-        logger.error(f"Failed to load contribution for {compstr}")
+        logger.error("Failed to load contribution", extra={"compstr": compstr})
         raise PreventUpdate
 
     requested_data = isographs_contributions_resp["data"][0]
     if not requested_data:
-        logger.error(f"Failed to load contribution for {compstr}")
+        logger.error("Failed to load contribution", extra={"compstr": compstr})
         raise PreventUpdate
 
     # get the contribs data back into the original json format that works with
