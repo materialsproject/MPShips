@@ -72,6 +72,9 @@ class redis_store:
                 if data_type == b"pd.DataFrame"
                 else json.loads(serialized_value)
             )
-        except Exception as e:
-            logger.error(f"{e}\nERROR LOADING {data_type} (hash {hash_key})")
-            raise e
+        except Exception:
+            logger.exception(
+                "Failed to load stored component data",
+                extra={"data_type": data_type, "hash_key": hash_key},
+            )
+            raise
