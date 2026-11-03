@@ -44,7 +44,10 @@ COPY ./MPShips/docker/app/start.sh .
 COPY ./MPShips/docker/app/healthcheck.sh .
 COPY ./MPShips/docker/app/main.py .
 COPY ./MPShips/docker/app/supervisord.conf .
+COPY ./MPShips/docker/Makefile .
 
+RUN make sync-mp-ui-assets && \
+    make sync-devops-scripts
 
 RUN mkdir -p /var/log/supervisor
 RUN chmod +x main.py start.sh healthcheck.sh
