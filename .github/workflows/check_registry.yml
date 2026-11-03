@@ -1,0 +1,138 @@
+name: check-registry
+
+# Runs on every pull request into the branch below. For each request the PR adds or changes
+# (registry/<name>/registry.yaml), it checks that the name is not already registered for another app
+# (registered.yaml). If it is, the workflow comments on the PR with what to fix, and fails.
+# Mark "Registry check" as a required status check in the branch protection, and a PR that
+# fails it cannot be merged.
+#
+# pull_request_target runs this file as it is on the base branch, so a pull request cannot change
+# how it is checked. The PR's files are only read with git, never checked out or run.
+
+on:
+  pull_request_target:
+    branches: [mpships2]   # change to [main] later
+
+concurrency:
+  group: check-registry-${{ github.event.pull_request.number }}
+  cancel-in-progress: true   # a newer push to the PR replaces the older check
+
+permissions:
+  contents: read
+  pull-requests: write   # to comment on the PR
+
+jobs:
+  check:
+    name: Registry check
+    runs-on: ubuntu-latest
+    steps:
+      # the base branch, never the PR
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check the registry request
+        id: check
+        continue-on-error: true   # so the comment below is always posted; the last step fails the job
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -o pipefail
+          {
+            git fetch -q origin "refs/pull/$PR_NUMBER/head"
+            head=$(git rev-parse FETCH_HEAD)
+
+            clean() { printf '%s' "$*" | tr '\r\n' '  ' | cut -c1-300; }   # text from the PR: one short line
+            norm() { local s=${1,,}; s=${s%.git}; echo "${s%/}"; }
+
+            # the requests this PR adds or changes
+            names=()
+            while IFS= read -r -d '' path; do
+              if [[ $path =~ ^registry/([^/]+)/registry\.yaml$ ]]; then names+=("${BASH_REMATCH[1]}"); fi
+            done < <(git diff --name-only --diff-filter=AM -z "$BASE_SHA...$head")
+            if [ ${#names[@]} -eq 0 ]; then
+              echo "No registry request in this PR."
+              exit 0
+            fi
+
+            problems=0
+            for name in "${names[@]}"; do
+              git show "$head:registry/$name/registry.yaml" > "$RUNNER_TEMP/request.yaml" 2>/dev/null || : > "$RUNNER_TEMP/request.yaml"
+              repo=$(yq '.upstream_repo' "$RUNNER_TEMP/request.yaml" 2>/dev/null || true)
+              found=0
+              if [ -f registered.yaml ]; then
+                while read -r rname rrepo; do
+                  [ "${rname,,}" = "${name,,}" ] || continue
+                  found=1
+                  if [ "$rname" != "$name" ]; then
+                    echo "::error::$(clean "$name: too close to the registered app '$rname' (names are not case-sensitive)")"
+                    problems=1
+                  elif [ "$(norm "$rrepo")" != "$(norm "$repo")" ]; then
+                    echo "::error::$(clean "$name: the name is already registered for $rrepo, but this request points to ${repo:-(no upstream_repo)}. Choose another name")"
+                    problems=1
+                  else
+                    echo "$(clean "$name") is already registered, so this is an update"
+                  fi
+                done < <(yq '.[] | .name + " " + .upstream_repo' registered.yaml)
+              fi
+              [ $found = 1 ] || echo "$(clean "$name") is a new name"
+            done
+
+            if [ $problems -ne 0 ]; then exit 1; fi
+            echo "Registry check passed."
+          } 2>&1 | tee "$RUNNER_TEMP/check.log"
+
+      - name: Comment on the PR
+        if: steps.check.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          OUTCOME: ${{ steps.check.outcome }}
+        run: |
+          set -euo pipefail
+
+          # a PR that has nothing to do with the registry gets no comment
+          if grep -q "No registry request in this PR" "$RUNNER_TEMP/check.log" 2>/dev/null; then
+            echo "Not a registry request, so no comment."
+            exit 0
+          fi
+
+          marker='<!-- mpships-registry-check -->'
+          # text from the PR goes into a code block only, with any ``` made harmless
+          log=$(sed 's/```/` ` `/g' "$RUNNER_TEMP/check.log" 2>/dev/null || true)
+          errors=$(printf '%s\n' "$log" | grep '^::error::' | sed 's/^::error:://' || true)
+          [ -n "$errors" ] || errors=$(printf '%s\n' "$log" | tail -15)
+
+          {
+            echo "$marker"
+            if [ "$OUTCOME" = success ]; then
+              echo "### Registry check passed"
+              echo
+              echo "A reviewer will look at this request next."
+            else
+              echo "### Registry check failed"
+              echo
+              echo "Please fix the problems below and push your changes to this PR."
+              echo "It cannot be merged until this check passes. The check runs again on every push."
+              echo
+              echo '```'
+              printf '%s\n' "$errors"
+              echo '```'
+            fi
+          } > "$RUNNER_TEMP/comment.md"
+
+          # one comment per PR: update ours if it exists, so pushes do not pile up comments
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
+                 --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id" \
+               | head -1 || true)
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          else
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+          fi
+
+      # A failed job is a failed status check. With this check required, GitHub blocks the merge.
+      - name: Fail if the check failed
+        if: steps.check.outcome == 'failure'
+        run: exit 1
