@@ -1,0 +1,7 @@
+apps:
+  alab:
+    repo: https://github.com/minhsueh/alab-mpships.git
+    branch: main
+    sha: 3eb98c53511fbad3833c9c8a77d234a84a7e1381
+    content_sha256: 5cdce534cbc7045231d99206fa1a76a9896f7bafdbedcf569178c6985afe4886
+    frozen_at: "2026-11-03T00:24:23Z"
