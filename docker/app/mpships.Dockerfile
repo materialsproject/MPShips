@@ -44,7 +44,7 @@ COPY ./MPShips/docker/app/start.sh .
 COPY ./MPShips/docker/app/healthcheck.sh .
 COPY ./MPShips/docker/app/main.py .
 COPY ./MPShips/docker/app/supervisord.conf .
-COPY ./MPShips/docker/Makefile .
+COPY ./MPShips/docker/app/Makefile .
 
 RUN make sync-mp-ui-assets && \
     make sync-devops-scripts
