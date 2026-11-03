@@ -21,6 +21,7 @@ env:
   BASE_BRANCH: mpships2 # where this runs and where the pull request goes
   SOURCE_BRANCH: main # the app's own repo: the requested commit must be on this branch
   ALLOW_PREFIX: https://github.com/
+  LEDGER: registered.yaml # the file that records what was frozen; use another name if this one already has a different layout
 
 jobs:
   freeze:
@@ -37,6 +38,24 @@ jobs:
         with:
           fetch-depth: 0 # the range of commits in this push is needed
 
+      - name: Check the ledger file has the layout this workflow writes
+        run: |
+          [ -f "$LEDGER" ] || exit 0 # no ledger yet: it will be created
+          kind="$(yq 'tag' "$LEDGER")"
+          if [ "$kind" = '!!null' ]; then
+            exit 0 # an empty file is fine
+          fi
+          if [ "$kind" != '!!map' ]; then
+            echo "refused: $LEDGER is a $kind, not a mapping with an 'apps' key. Set LEDGER in this workflow to a new file name."
+            exit 1
+          fi
+          other="$(yq 'keys | .[] | select(. != "apps")' "$LEDGER")"
+          if [ -n "$other" ]; then
+            echo "refused: $LEDGER has top-level keys this workflow does not write: $(echo "$other" | tr '\n' ' ')"
+            echo "Set LEDGER in this workflow to a new file name."
+            exit 1
+          fi
+
       - name: Freeze the commits named in the changed request files
         env:
           EVENT: ${{ github.event_name }}
@@ -49,30 +68,31 @@ jobs:
           }
 
           freeze() { # NAME REPO SHA -- request files are untrusted input, so everything is checked
-            local name="$1" repo="$2" sha="$3" tmp
+            local name="$1" repo="$2" sha="${3,,}" tmp full
             [[ "$name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "refused: app name '$name' must be lowercase letters, digits, - or _"; return 1; }
             [[ "$repo" == "$ALLOW_PREFIX"* ]] || { echo "refused: repository must start with $ALLOW_PREFIX"; return 1; }
-            [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "refused: $name needs the full 40-character commit SHA"; return 1; }
+            [[ "$sha" =~ ^[0-9a-f]{7,40}$ ]] || { echo "refused: $name commit '$sha' must be 7 to 40 hexadecimal characters"; return 1; }
             tmp="$(mktemp -d)"
             git init -q "$tmp"
             git -C "$tmp" remote add origin "$repo"
             git -C "$tmp" fetch -q origin "+refs/heads/$SOURCE_BRANCH:refs/remotes/origin/$SOURCE_BRANCH"
-            git -C "$tmp" cat-file -e "$sha^{commit}" 2>/dev/null || { echo "refused: $name commit ${sha:0:8} is not in the history of $SOURCE_BRANCH"; return 1; }
+            full="$(git -C "$tmp" rev-parse --verify --quiet "$sha^{commit}")" || { echo "refused: $name commit $sha is not in the history of $SOURCE_BRANCH, or is ambiguous"; return 1; }
+            sha="$full" # from here on, always the full 40-character hash
             git -C "$tmp" merge-base --is-ancestor "$sha" "origin/$SOURCE_BRANCH" || { echo "refused: $name commit ${sha:0:8} is not on $SOURCE_BRANCH"; return 1; }
             rm -rf "apps/$name"
             mkdir -p "apps/$name"
             git -C "$tmp" archive "$sha" | tar -x -C "apps/$name"
-            [ -f registered.yaml ] || echo "apps: {}" > registered.yaml
+            [ -f "$LEDGER" ] || echo "apps: {}" > "$LEDGER"
             local hash old_sha old_hash
             hash="$(content_hash "apps/$name")"
-            old_sha="$(NAME="$name" yq '.apps[strenv(NAME)].sha // ""' registered.yaml)"
-            old_hash="$(NAME="$name" yq '.apps[strenv(NAME)].content_sha256 // ""' registered.yaml)"
+            old_sha="$(NAME="$name" yq '.apps[strenv(NAME)].sha // ""' "$LEDGER")"
+            old_hash="$(NAME="$name" yq '.apps[strenv(NAME)].content_sha256 // ""' "$LEDGER")"
             if [ "$old_sha" = "$sha" ] && [ "$old_hash" = "$hash" ]; then
               echo "$name is already frozen at ${sha:0:8}, nothing to change"
               return 0
             fi
             NAME="$name" REPO="$repo" SHA="$sha" HASH="$hash" NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              yq -i '.apps[strenv(NAME)] = {"repo": strenv(REPO), "branch": strenv(SOURCE_BRANCH), "sha": strenv(SHA), "content_sha256": strenv(HASH), "frozen_at": strenv(NOW)}' registered.yaml
+              yq -i '.apps[strenv(NAME)] = {"repo": strenv(REPO), "branch": strenv(SOURCE_BRANCH), "sha": strenv(SHA), "content_sha256": strenv(HASH), "frozen_at": strenv(NOW)}' "$LEDGER"
             echo "frozen $name at ${sha:0:8}"
           }
 
@@ -95,13 +115,13 @@ jobs:
               [ "$etype" = '!!map' ] || { echo "refused: $file entry $i is not a mapping"; return 1; }
               keys="$(yq 'keys | join(", ")' <<< "$entry")"
               name="$(yq '.name // ""' <<< "$entry")"
-              repo="$(yq '.repo // ""' <<< "$entry")"
-              sha="$(yq '.sha // ""' <<< "$entry")"
+              repo="$(yq '.repo // .upstream_repo // ""' <<< "$entry")"
+              sha="$(yq '.sha // .upstream_commit // ""' <<< "$entry")"
               if [ -z "$name" ]; then
                 [ "${#entries[@]}" -eq 1 ] || { echo "refused: $file entry $i has no name (keys found: $keys)"; return 1; }
                 name="$folder" # a single request: the folder name is the app name
               fi
-              [ -n "$repo" ] && [ -n "$sha" ] || { echo "refused: $file entry $i needs repo and sha (keys found: $keys)"; return 1; }
+              [ -n "$repo" ] && [ -n "$sha" ] || { echo "refused: $file entry $i needs a repository (repo or upstream_repo) and a commit (sha or upstream_commit); keys found: $keys"; return 1; }
               freeze "$name" "$repo" "$sha"
             done
           }
@@ -130,19 +150,20 @@ jobs:
 
       - name: Verify every frozen app still matches its record
         run: |
-          [ -f registered.yaml ] || { echo "nothing frozen yet"; exit 0; }
+          [ -f "$LEDGER" ] || { echo "nothing frozen yet"; exit 0; }
           content_hash() { # keep identical to the definition in the step above
             (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
           }
           status=0
-          for app in $(yq '.apps | keys | .[]' registered.yaml); do
-            expected="$(APP="$app" yq '.apps[strenv(APP)].content_sha256' registered.yaml)"
-            if [ ! -d "apps/$app" ]; then result=MISSING
+          for app in $(yq '.apps | keys | .[]' "$LEDGER"); do
+            expected="$(APP="$app" yq '.apps[strenv(APP)].content_sha256 // ""' "$LEDGER")"
+            if [ -z "$expected" ]; then result="skipped (no content hash recorded)"
+            elif [ ! -d "apps/$app" ]; then result=MISSING
             elif [ "$(content_hash "apps/$app")" != "$expected" ]; then result=CHANGED
             else result=ok
             fi
             printf '%-14s %s\n' "$app" "$result"
-            [ "$result" = ok ] || status=1
+            case "$result" in ok | skipped*) ;; *) status=1 ;; esac
           done
           exit "$status"
 
@@ -152,7 +173,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           AFTER: ${{ github.sha }}
         run: |
-          if [ -z "$(git status --porcelain apps registered.yaml)" ]; then
+          if [ -z "$(git status --porcelain apps "$LEDGER")" ]; then
             echo "nothing to commit"
             exit 0
           fi
@@ -161,9 +182,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
-          git add apps registered.yaml
+          git add apps "$LEDGER"
           git commit -m "Freeze requested apps (from ${short})"
           git push origin "$branch"
           gh pr create --base "$BASE_BRANCH" --head "$branch" \
             --title "Freeze requested apps (from ${short})" \
-            --body "Started by a ${EVENT} on ${AFTER}. registered.yaml records the repository, commit and a content hash of each snapshot."
+            --body "Started by a ${EVENT} on ${AFTER}. ${LEDGER} records the repository, commit and a content hash of each snapshot."
