@@ -60,7 +60,7 @@ git sparse-checkout set registry
 
 This downloads the latest commit and only the `registry/` folder.
 
-Prefer not to use git locally? Open `registry/registry.yaml` on [GitHub](https://github.com/materialsproject/MPShips/blob/mpships2/registry/registry.yaml) and use the pencil icon to edit it in the browser. GitHub creates the fork and the pull request for you.
+Prefer not to use git locally? Open `registry/<YOUR APP NAME>/registry.yaml` on [GitHub](https://github.com/materialsproject/MPShips/blob/mpships2/registry/<YOUR APP NAME>/registry.yaml) and use the pencil icon to edit it in the browser. GitHub creates the fork and the pull request for you.
 
 ### 5. Submit a PR
 
@@ -70,11 +70,11 @@ In your app's repository, get the full commit SHA of the version you want review
 git rev-parse HEAD
 ```
 
-Then, in your clone of the registry, add an entry to `registry/registry.yaml`:
+Then, in your clone of the registry, add an entry to `registry/<YOUR APP NAME>/registry.yaml`:
 
 ```yaml
-- name: my-app
-  upstream_repo: https://github.com/<you>/my-app
+- name: <YOUR APP NAME>
+  upstream_repo: https://github.com/<you>/<YOUR APP NAME>
   upstream_commit: <full 40-character commit SHA>
   version: "1.0.0"
   author: <your-github-username>

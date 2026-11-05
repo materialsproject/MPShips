@@ -26,6 +26,7 @@ ENV PYTHONUNBUFFERED=1 \
 FROM python-base AS builder-base
 RUN apt-get update && apt-get install -yqq --no-install-recommends build-essential cmake wget && apt-get clean
 WORKDIR /app
+COPY ./MPShips/docker/app/Makefile .
 # COPY ./web/requirements/deployment.txt ./requirements.txt
 # RUN pip install --upgrade pip && pip install $PIP_FLAGS -r requirements.txt
 RUN wget -q https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh && \

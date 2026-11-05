@@ -1,9 +1,0 @@
-- name: thermal-redox-app
-  upstream_repo: https://github.com/minhsueh/thermal-redox-app.git
-  upstream_commit: e61b317852ab1ce388269935f981da9dedc98146
-  version: "1.0.0"
-  author: Min-Hsueh Chiu
-  author_git: https://github.com/minhsueh
-  registry_date: <registry date>
-  description: Analysis of redox thermodynamic properties
-  
