@@ -1,87 +1,190 @@
-name: registry
+name: Freeze requested apps
 
-# When a change to registry/registry.yaml is merged into the branch below,
-# freeze every new or changed app into app/<name>/.
-#   new or changed = a new name, or a different upstream_repo or upstream_commit
-#   frozen         = that exact commit's files only (no git history), minus unnecessary files
-
+# Starts when a request file is pushed to mpships2. It never needs to exist on main.
 on:
-  workflow_dispatch:
   push:
-    # GitHub does not allow variables in the trigger, so it fires for a push to any
-    # branch that changes the registry. Every step below runs only on BRANCH.
-    paths: [registry/registry.yaml]
+    branches: [mpships2] # change to main later, together with BASE_BRANCH below
+    paths:
+      - "registry/*/registry.yaml"
+  workflow_dispatch: # manual run: freezes what the request files on this branch say
+    inputs:
+      app:
+        description: App folder name under registry/ (leave empty to check every request file)
+        required: false
+        default: ""
 
-concurrency:
-  group: registry-${{ github.ref }}
-  cancel-in-progress: false
+permissions:
+  contents: write
+  pull-requests: write
 
 env:
-  BRANCH: mpships2   # the one place to change (use main later)
+  BASE_BRANCH: mpships2 # where this runs and where the pull request goes
+  SOURCE_BRANCH: main # the app's own repo: the requested commit must be on this branch
+  ALLOW_PREFIX: https://github.com/
+  LEDGER: registered.yaml # the file that records what was frozen; use another name if this one already has a different layout
 
 jobs:
-  registry:
+  freeze:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
+      - name: Only run on the base branch
+        run: |
+          if [ "$GITHUB_REF_NAME" != "$BASE_BRANCH" ]; then
+            echo "This workflow only runs on $BASE_BRANCH, but it was started on $GITHUB_REF_NAME."
+            exit 1
+          fi
+
       - uses: actions/checkout@v5
-        if: github.ref_name == env.BRANCH
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # the range of commits in this push is needed
 
-      - name: Clone and freeze new or changed apps
-        if: github.ref_name == env.BRANCH
+      - name: Check the ledger file has the layout this workflow writes
+        run: |
+          [ -f "$LEDGER" ] || exit 0 # no ledger yet: it will be created
+          kind="$(yq 'tag' "$LEDGER")"
+          if [ "$kind" = '!!null' ]; then
+            exit 0 # an empty file is fine
+          fi
+          if [ "$kind" != '!!map' ]; then
+            echo "refused: $LEDGER is a $kind, not a mapping with an 'apps' key. Set LEDGER in this workflow to a new file name."
+            exit 1
+          fi
+          other="$(yq 'keys | .[] | select(. != "apps")' "$LEDGER")"
+          if [ -n "$other" ]; then
+            echo "refused: $LEDGER has top-level keys this workflow does not write: $(echo "$other" | tr '\n' ' ')"
+            echo "Set LEDGER in this workflow to a new file name."
+            exit 1
+          fi
+
+      - name: Freeze the commits named in the changed request files
         env:
-          BASE: ${{ github.event.before }}
-          GIT_TERMINAL_PROMPT: "0"
-          GIT_LFS_SKIP_SMUDGE: "1"
+          EVENT: ${{ github.event_name }}
+          APP: ${{ inputs.app }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
         run: |
-          set -euo pipefail
+          content_hash() { # one hash over every file's path and bytes
+            (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
+          }
 
-          # registry.yaml as it was before this merge (empty list if there was none)
-          git show "$BASE:registry/registry.yaml" > /tmp/old.yaml 2>/dev/null || echo "[]" > /tmp/old.yaml
-          mkdir -p app
-
-          while read -r name repo sha; do
-            # skip apps whose repo and commit are both unchanged
-            old=$(NAME="$name" yq '.[] | select(.name == strenv(NAME)) | .upstream_repo + " " + .upstream_commit' /tmp/old.yaml)
-            if [ "$old" = "$repo $sha" ]; then
-              continue
-            fi
-
-            # safety: the name becomes a folder, and the repo and SHA go to git
-            [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "::error::invalid name: $name"; exit 1; }
-            [[ $repo =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "::error::invalid upstream_repo: $repo"; exit 1; }
-            [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid upstream_commit: $sha"; exit 1; }
-
-            echo "Freezing $name @ ${sha:0:7}"
-
-            # 1. clone exactly that commit into a temporary folder
-            tmp=$(mktemp -d)
+          freeze() { # NAME REPO SHA -- request files are untrusted input, so everything is checked
+            local name="$1" repo="$2" sha="${3,,}" tmp full
+            [[ "$name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "refused: app name '$name' must be lowercase letters, digits, - or _"; return 1; }
+            [[ "$repo" == "$ALLOW_PREFIX"* ]] || { echo "refused: repository must start with $ALLOW_PREFIX"; return 1; }
+            [[ "$sha" =~ ^[0-9a-f]{7,40}$ ]] || { echo "refused: $name commit '$sha' must be 7 to 40 hexadecimal characters"; return 1; }
+            tmp="$(mktemp -d)"
             git init -q "$tmp"
-            git -C "$tmp" fetch -q --depth 1 "$repo" "$sha"
-            git -C "$tmp" checkout -q FETCH_HEAD
+            git -C "$tmp" remote add origin "$repo"
+            git -C "$tmp" fetch -q origin "+refs/heads/$SOURCE_BRANCH:refs/remotes/origin/$SOURCE_BRANCH"
+            full="$(git -C "$tmp" rev-parse --verify --quiet "$sha^{commit}")" || { echo "refused: $name commit $sha is not in the history of $SOURCE_BRANCH, or is ambiguous"; return 1; }
+            sha="$full" # from here on, always the full 40-character hash
+            git -C "$tmp" merge-base --is-ancestor "$sha" "origin/$SOURCE_BRANCH" || { echo "refused: $name commit ${sha:0:8} is not on $SOURCE_BRANCH"; return 1; }
+            rm -rf "apps/$name"
+            mkdir -p "apps/$name"
+            git -C "$tmp" archive "$sha" | tar -x -C "apps/$name"
+            [ -f "$LEDGER" ] || echo "apps: {}" > "$LEDGER"
+            local hash old_sha old_hash
+            hash="$(content_hash "apps/$name")"
+            old_sha="$(NAME="$name" yq '.apps[strenv(NAME)].sha // ""' "$LEDGER")"
+            old_hash="$(NAME="$name" yq '.apps[strenv(NAME)].content_sha256 // ""' "$LEDGER")"
+            if [ "$old_sha" = "$sha" ] && [ "$old_hash" = "$hash" ]; then
+              echo "$name is already frozen at ${sha:0:8}, nothing to change"
+              return 0
+            fi
+            NAME="$name" REPO="$repo" SHA="$sha" HASH="$hash" NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              yq -i '.apps[strenv(NAME)] = {"repo": strenv(REPO), "branch": strenv(SOURCE_BRANCH), "sha": strenv(SHA), "content_sha256": strenv(HASH), "frozen_at": strenv(NOW)}' "$LEDGER"
+            echo "frozen $name at ${sha:0:8}"
+          }
 
-            # 2. freeze: drop git history and unnecessary files
-            rm -rf "$tmp/.git" "$tmp/.github" "$tmp/.circleci" "$tmp/.vscode" "$tmp/.idea"
-            find "$tmp" \( -name __pycache__ -o -name '*.pyc' -o -name .DS_Store \) -prune -exec rm -rf {} +
+          process_request_file() { # FILE -- accepts one mapping, or a list of mappings (name, repo, sha)
+            local file="$1" folder kind exprs entry etype name repo sha keys i=0
+            local -a entries
+            folder="$(basename "$(dirname "$file")")"
+            yq '.' "$file" > /dev/null || { echo "refused: $file is not valid YAML"; return 1; }
+            kind="$(yq 'tag' "$file")"
+            case "$kind" in
+              '!!map') exprs='.' ;;
+              '!!seq') exprs='.[]' ;;
+              '' | '!!null') echo "refused: $file is empty"; return 1 ;;
+              *) echo "refused: $file must be a mapping with repo and sha, or a list of them"; return 1 ;;
+            esac
+            mapfile -t entries < <(yq -o=json -I=0 "$exprs" "$file")
+            for entry in "${entries[@]}"; do
+              i=$((i + 1))
+              etype="$(yq 'tag' <<< "$entry")"
+              [ "$etype" = '!!map' ] || { echo "refused: $file entry $i is not a mapping"; return 1; }
+              keys="$(yq 'keys | join(", ")' <<< "$entry")"
+              name="$(yq '.name // ""' <<< "$entry")"
+              repo="$(yq '.repo // .upstream_repo // ""' <<< "$entry")"
+              sha="$(yq '.sha // .upstream_commit // ""' <<< "$entry")"
+              if [ -z "$name" ]; then
+                [ "${#entries[@]}" -eq 1 ] || { echo "refused: $file entry $i has no name (keys found: $keys)"; return 1; }
+                name="$folder" # a single request: the folder name is the app name
+              fi
+              [ -n "$repo" ] && [ -n "$sha" ] || { echo "refused: $file entry $i needs a repository (repo or upstream_repo) and a commit (sha or upstream_commit); keys found: $keys"; return 1; }
+              freeze "$name" "$repo" "$sha"
+            done
+          }
 
-            # 3. only now replace the old snapshot, so a failed fetch never removes it
-            rm -rf "app/$name"
-            mv "$tmp" "app/$name"
-          done < <(yq '.[] | .name + " " + .upstream_repo + " " + .upstream_commit' registry/registry.yaml)
-
-      - name: Commit and push snapshots
-        if: github.ref_name == env.BRANCH
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f app   # -f: keep files even if a .gitignore would skip them
-          if git diff --cached --quiet; then
-            echo "Nothing to commit."
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ -n "$APP" ]; then
+              [[ "$APP" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "refused: app name '$APP' must be lowercase letters, digits, - or _"; exit 1; }
+              [ -f "registry/$APP/registry.yaml" ] || { echo "refused: registry/$APP/registry.yaml does not exist on this branch"; exit 1; }
+              files="registry/$APP/registry.yaml"
+            else
+              files="$(git ls-files -- ':(glob)registry/*/registry.yaml')"
+            fi
+          else
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              BEFORE="$(git hash-object -t tree /dev/null)" # a brand new branch: compare with the empty tree
+            fi
+            files="$(git diff --name-only --diff-filter=AM "$BEFORE" "$AFTER" -- ':(glob)registry/*/registry.yaml')"
+          fi
+          if [ -z "$files" ]; then
+            echo "no request files to process"
             exit 0
           fi
-          git commit -m "Archive approved apps from registry ${GITHUB_SHA::7}"
-          git pull --rebase origin "$BRANCH"
-          git push origin "HEAD:$BRANCH"
+          while IFS= read -r file; do
+            process_request_file "$file"
+          done <<< "$files"
+
+      - name: Verify every frozen app still matches its record
+        run: |
+          [ -f "$LEDGER" ] || { echo "nothing frozen yet"; exit 0; }
+          content_hash() { # keep identical to the definition in the step above
+            (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
+          }
+          status=0
+          for app in $(yq '.apps | keys | .[]' "$LEDGER"); do
+            expected="$(APP="$app" yq '.apps[strenv(APP)].content_sha256 // ""' "$LEDGER")"
+            if [ -z "$expected" ]; then result="skipped (no content hash recorded)"
+            elif [ ! -d "apps/$app" ]; then result=MISSING
+            elif [ "$(content_hash "apps/$app")" != "$expected" ]; then result=CHANGED
+            else result=ok
+            fi
+            printf '%-14s %s\n' "$app" "$result"
+            case "$result" in ok | skipped*) ;; *) status=1 ;; esac
+          done
+          exit "$status"
+
+      - name: Open a pull request into the base branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ -z "$(git status --porcelain apps "$LEDGER")" ]; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          short="${AFTER:0:8}"
+          branch="freeze/${short}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add apps "$LEDGER"
+          git commit -m "Freeze requested apps (from ${short})"
+          git push origin "$branch"
+          gh pr create --base "$BASE_BRANCH" --head "$branch" \
+            --title "Freeze requested apps (from ${short})" \
+            --body "Started by a ${EVENT} on ${AFTER}. ${LEDGER} records the repository, commit and a content hash of each snapshot."

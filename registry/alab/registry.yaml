@@ -1,0 +1,9 @@
+- name: alab
+  upstream_repo: https://github.com/minhsueh/alab-mpships.git
+  upstream_commit: 3eb98c53511fbad3833c9c8a77d234a84a7e1381
+  version: "1.0.0"
+  author: Min-Hsueh Chiu
+  author_git: https://github.com/minhsueh
+  registry_date: <registry date>
+  description: alab detail page
+  

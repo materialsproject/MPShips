@@ -1,3 +1,0 @@
-# flake8-logging-format: log constant messages, pass variable data as structured
-# fields via `extra=`
-extend-select = ["G"]
