@@ -33,6 +33,7 @@ RUN wget -q https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-
   chmod +x wait-for-it.sh && mv wait-for-it.sh /usr/local/bin/
 
 FROM python-base
+RUN apt-get update && apt-get install -yqq --no-install-recommends make && apt-get clean
 WORKDIR /app
 COPY --from=builder-base /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder-base /usr/local/bin /usr/local/bin
@@ -40,15 +41,15 @@ COPY --from=builder-base /usr/local/bin /usr/local/bin
 ARG APP_NAME
 WORKDIR /app
 COPY ./MPShips/apps/${APP_NAME}/ .
-COPY ./MPShips/docker/app/wsgi.py ./src/${APP_NAME}/wsgi.py
+COPY ./MPShips/docker/app/Makefile .
 COPY ./MPShips/docker/app/start.sh .
 COPY ./MPShips/docker/app/healthcheck.sh .
 COPY ./MPShips/docker/app/main.py .
 COPY ./MPShips/docker/app/supervisord.conf .
-COPY ./MPShips/docker/app/Makefile .
+COPY ./MPShips/docker/app/gunicorn.conf.py .
+COPY ./MPShips/docker/app/wsgi.py ./src/${APP_NAME}/
 
-RUN make sync-mp-ui-assets && \
-    make sync-devops-scripts
+RUN make sync-mp-ui-assets
 
 RUN mkdir -p /var/log/supervisor
 RUN chmod +x main.py start.sh healthcheck.sh

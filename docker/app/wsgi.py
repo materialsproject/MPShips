@@ -35,7 +35,7 @@ configure_logging()
 
 PACKAGE_NAME = os.environ.get("PACKAGE_NAME")
 MODULE_NAME = os.environ.get("MODULE_NAME")
-APP_FACTORY = os.environ.get("APP_FACTORY")
+APP_FACTORY = os.environ.get("APP_FACTORY", "create_app")
 
 module = importlib.import_module(f"{PACKAGE_NAME}.{MODULE_NAME}")
 create_app = getattr(module, APP_FACTORY)
@@ -43,12 +43,12 @@ create_app = getattr(module, APP_FACTORY)
 if MODULE_NAME == "app":
     # MPShips
 
-    url = f"/{PACKAGE_NAME}/"
+    endpoint = f"/{PACKAGE_NAME}/"
     path_to_pages = os.path.join(os.path.dirname(__file__), "pages")
     assets_folder = os.path.join(os.path.dirname(__file__), "assets")
 
     dash_app = create_app(
-        url=url, pages_folder=path_to_pages, assets_folder=assets_folder
+        endpoint=endpoint, pages_folder=path_to_pages, assets_folder=assets_folder
     )
 else:
     # mp_web
