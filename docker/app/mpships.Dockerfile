@@ -27,6 +27,10 @@ FROM python-base AS builder-base
 RUN apt-get update && apt-get install -yqq --no-install-recommends build-essential cmake wget && apt-get clean
 WORKDIR /app
 COPY ./MPShips/docker/app/Makefile .
+RUN --mount=type=secret,id=pip_index_url \
+    export PIP_INDEX_URL=$(cat /run/secrets/pip_index_url) && \
+    make install-mp-ui
+
 # COPY ./web/requirements/deployment.txt ./requirements.txt
 # RUN pip install --upgrade pip && pip install $PIP_FLAGS -r requirements.txt
 RUN wget -q https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh && \
@@ -42,14 +46,9 @@ ARG APP_NAME
 WORKDIR /app
 COPY ./MPShips/apps/${APP_NAME}/ .
 COPY ./MPShips/docker/app/Makefile .
-COPY ./MPShips/docker/app/start.sh .
-COPY ./MPShips/docker/app/healthcheck.sh .
-COPY ./MPShips/docker/app/main.py .
-COPY ./MPShips/docker/app/supervisord.conf .
-COPY ./MPShips/docker/app/gunicorn.conf.py .
 COPY ./MPShips/docker/app/wsgi.py ./src/${APP_NAME}/
 
-RUN make sync-mp-ui-assets
+RUN make sync-mp-ui-assets && make sync-devops-scripts
 
 RUN mkdir -p /var/log/supervisor
 RUN chmod +x main.py start.sh healthcheck.sh

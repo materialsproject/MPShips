@@ -40,19 +40,9 @@ APP_FACTORY = os.environ.get("APP_FACTORY", "create_app")
 module = importlib.import_module(f"{PACKAGE_NAME}.{MODULE_NAME}")
 create_app = getattr(module, APP_FACTORY)
 
-if MODULE_NAME == "app":
-    # MPShips
-
-    endpoint = f"/{PACKAGE_NAME}/"
-    path_to_pages = os.path.join(os.path.dirname(__file__), "pages")
-    assets_folder = os.path.join(os.path.dirname(__file__), "assets")
-
-    dash_app = create_app(
-        endpoint=endpoint, pages_folder=path_to_pages, assets_folder=assets_folder
-    )
-else:
-    # mp_web
-    dash_app = create_app()
+# Both mp_web and MPShips apps own their configuration (endpoint, pages and
+# assets folders) inside their own module's create_app(); wsgi just calls it.
+dash_app = create_app()
 
 # Dash callback names in logs, APM resources and the access log (idempotent,
 # the app factory may already have installed it)

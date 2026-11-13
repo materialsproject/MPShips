@@ -5,30 +5,12 @@ CODEARTIFACT_DOMAIN = mp-private
 CODEARTIFACT_REPO = mp-ui-pypi
 CODEARTIFACT_REGION = us-east-1
 
-# print-pip-index-url:
-#   Fetches a fresh CodeArtifact token and prints the fully-constructed
-#   PIP_INDEX_URL to stdout. The one place the aws CLI calls live.
-print-pip-index-url:
-	@TOKEN=$$(aws codeartifact get-authorization-token \
-		--domain $(CODEARTIFACT_DOMAIN) \
-		--region $(CODEARTIFACT_REGION) \
-		--query authorizationToken \
-		--output text) && \
-	REPO_URL=$$(aws codeartifact get-repository-endpoint \
-		--domain $(CODEARTIFACT_DOMAIN) \
-		--repository $(CODEARTIFACT_REPO) \
-		--format pypi \
-		--region $(CODEARTIFACT_REGION) \
-		--query repositoryEndpoint --output text) && \
-	echo "https://aws:$${TOKEN}@$${REPO_URL#https://}simple/"
-
-
 install-mp-ui:
 	@if [ -z "$$PIP_INDEX_URL" ]; then \
 		export PIP_INDEX_URL=$$($(MAKE) -s print-pip-index-url) || exit 1; \
 	fi && \
 	pip install --upgrade pip && \
-	pip install --no-cache-dir --compile mp-ui
+	pip install --no-cache-dir --compile mp-ui==v0.0.22rc1
 
 # sync-mp-ui-assets: safe to call standalone even if src/$(APP_NAME)/assets doesn't
 # exist yet (e.g. in a Docker stage that hasn't run the JS build).
@@ -50,5 +32,4 @@ sync-devops-scripts:
 	cp "$$SCRIPTS/healthcheck.sh" . && \
 	cp "$$SCRIPTS/main.py" . && \
 	cp "$$SCRIPTS/supervisord.conf" . && \
-	cp "$$SCRIPTS/gunicorn.conf.py" . && \
-	cp "$$SCRIPTS/wsgi.py" ./src/$(APP_NAME)/
+	cp "$$SCRIPTS/gunicorn.conf.py" .
