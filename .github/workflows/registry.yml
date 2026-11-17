@@ -27,7 +27,7 @@ permissions:
   pull-requests: write
 
 env:
-  ORG: mpships-apps   # the organization that owns the forks
+  ORG: ${{ github.repository_owner }} # materialsproject
 
 jobs:
   register:
