@@ -1,9 +1,0 @@
-- name: thermal-redox-app
-  upstream_repo: https://github.com/minhsueh/thermal-redox-app.git
-  upstream_commit: a444468651ed4728b8e36551acbae9a270f1bb86
-  version: "1.0.0"
-  author: Min-Hsueh Chiu
-  author_git: https://github.com/minhsueh
-  registry_date: <registry date>
-  description: thermal-redox-app
-  
