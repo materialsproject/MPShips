@@ -1,0 +1,220 @@
+name: check-registry
+
+# Runs on every pull request into the branch below. A pull request must add or change exactly one
+# request (registry/<name>/registry.yaml); one without a request cannot be merged either, except the
+# registration PR that only removes finished requests. It checks the file, the repository and the commit, and it works
+# out the unique id of the app (the upstream owner and repository, in lower case, for example
+# minhsueh-thermal-redox-app). registered.yaml has one key per unique id: a request whose id is
+# already there is an update, and it must keep the name it was registered with; a new id must not
+# take a name that another app already has.
+# If something is wrong, the check fails and the problems are shown: in a comment on the PR when
+# GitHub allows it, and always in the run's summary and as annotations.
+# Mark "Registry check" as a required status check in the branch protection, and a PR that
+# fails it cannot be merged.
+#
+# This uses pull_request, not pull_request_target: it needs no file on the default branch, and
+# it is not covered by GitHub's default block of pull_request_target in public repositories.
+# The price: for a PR from a fork, GitHub gives this job a read-only token and no secrets.
+# That is enough here, because the check only reads. The workflow file itself comes from the PR,
+# so put .github/ under CODEOWNERS and require review from code owners.
+
+on:
+  pull_request:
+    branches: [mpships2]   # change to [main] later
+
+concurrency:
+  group: check-registry-${{ github.event.pull_request.number }}
+  cancel-in-progress: true   # a newer push to the PR replaces the older check
+
+permissions:
+  contents: read
+  pull-requests: write   # to comment on the PR (GitHub only grants this to PRs from the same repository)
+
+jobs:
+  check:
+    name: Registry check
+    runs-on: ubuntu-latest
+    steps:
+      # the base branch, never the PR: registered.yaml must be the one that is already merged
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Check the registry request
+        id: check
+        continue-on-error: true   # so the comment below is always posted; the last step fails the job
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}   # read-only look-ups of the contributor's public repository
+        run: |
+          set -o pipefail
+          {
+            git fetch -q origin "refs/pull/$PR_NUMBER/head"
+            head=$(git rev-parse FETCH_HEAD)
+
+            clean() { printf '%s' "$*" | tr '\r\n' '  ' | cut -c1-300; }   # text from the PR: one short line
+            fail() { echo "::error::$(clean "$*")"; exit 1; }
+
+            # the request this PR adds or changes: there must be exactly one
+            # --no-renames: a request moved to another folder counts as removed plus added, so it is checked
+            names=()
+            while IFS= read -r -d '' path; do
+              if [[ $path =~ ^registry/([^/]+)/registry\.yaml$ ]]; then names+=("${BASH_REMATCH[1]}"); fi
+            done < <(git diff --no-renames --name-only --diff-filter=AM -z "$BASE_SHA...$head")
+            removed=0   # a PR that only removes finished requests is the registration PR that the workflow opens
+            while IFS= read -r -d '' path; do
+              if [[ $path =~ ^registry/[^/]+/registry\.yaml$ ]]; then removed=1; fi
+            done < <(git diff --no-renames --name-only --diff-filter=D -z "$BASE_SHA...$head")
+            if [ ${#names[@]} -eq 0 ]; then
+              if [ "$removed" = 1 ]; then
+                echo "This PR only removes registered requests."
+                exit 0
+              fi
+              fail "This pull request has no registry request. Add registry/<name>/registry.yaml (see the README)"
+            fi
+            if [ ${#names[@]} -gt 1 ]; then
+              fail "A pull request may add or change only one registry request, but this one has ${#names[@]}: ${names[*]}"
+            fi
+            name=${names[0]}
+
+            if [ -s registered.yaml ] && [ "$(yq 'length' registered.yaml)" -gt 0 ] && [ "$(yq 'tag' registered.yaml)" != "!!map" ]; then
+              fail "registered.yaml must be a mapping with one key per app (the unique id), but it is not. Convert it before requests can be merged"
+            fi
+
+            git show "$head:registry/$name/registry.yaml" > "$RUNNER_TEMP/request.yaml" 2>/dev/null || : > "$RUNNER_TEMP/request.yaml"
+            req="$RUNNER_TEMP/request.yaml"
+
+            # the request itself: a list with one item that has the three required keys
+            bad=""
+            if ! [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
+              bad="the folder name may only contain letters, digits, - and _, and must start with a letter or digit"
+            elif ! kind=$(yq 'tag' "$req" 2>/dev/null); then
+              bad="the file is not valid YAML"
+            elif [ "$kind" != "!!seq" ]; then
+              bad="the file must be a list with one item, written as '- key: value' lines"
+            elif [ "$(yq 'length' "$req")" -ne 1 ]; then
+              bad="the file must have exactly one item, but it has $(yq 'length' "$req")"
+            else
+              missing=""
+              for key in name upstream_repo upstream_commit; do   # in any order
+                [ -n "$(KEY=$key yq '.[0][strenv(KEY)] // ""' "$req" 2>/dev/null)" ] || missing="$missing $key"
+              done
+              if [ -n "$missing" ]; then bad="missing required key(s):$missing (required: name, upstream_repo, upstream_commit)"; fi
+            fi
+            if [ -z "$bad" ]; then
+              given=$(yq '.[0].name' "$req"); sha=$(yq '.[0].upstream_commit' "$req"); repo=$(yq '.[0].upstream_repo' "$req")
+              if [ "$given" != "$name" ]; then
+                bad="name is '$given', but the folder is called '$name'. They must match"
+              elif ! [[ $sha =~ ^[0-9a-f]{40}$ ]]; then
+                bad="upstream_commit must be the full 40-character commit hash (lowercase letters and digits), not '$sha'"
+              elif ! [[ $repo =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+                bad="upstream_repo must look like https://github.com/OWNER/REPO, not '$repo'"
+              fi
+            fi
+            if [ -z "$bad" ]; then   # the repository and the commit must really exist on GitHub
+              slug=${repo#https://github.com/}; slug=${slug%.git}; slug=${slug%/}
+              if ! info=$(gh api "repos/$slug" --jq '[.private, .default_branch] | @tsv' 2>/dev/null); then
+                bad="the repository $slug was not found on GitHub"
+              else
+                IFS=$'\t' read -r private branch <<< "$info"
+                if [ "$private" = "true" ]; then
+                  bad="the repository $slug is private; it must be public so that it can be forked"
+                elif ! [[ $branch =~ ^[A-Za-z0-9._/-]+$ ]]; then
+                  bad="the default branch of $slug has an unexpected name"
+                elif ! status=$(gh api "repos/$slug/compare/$branch...$sha" --jq '.status' 2>/dev/null); then
+                  bad="the commit ${sha:0:8} was not found in $slug"
+                elif [ "$status" != "behind" ] && [ "$status" != "identical" ]; then
+                  bad="the commit ${sha:0:8} exists, but it is not part of the default branch ($branch) of $slug"
+                fi
+              fi
+            fi
+            [ -z "$bad" ] || fail "$name: $bad"
+
+            # the unique id of the app: the upstream owner and repository, in lower case (the key in registered.yaml)
+            uid="$(basename "$(dirname "$repo")")-$(basename "$repo" .git)"; uid=${uid,,}
+            known=""; other=""
+            if [ -s registered.yaml ]; then
+              known=$(UNIQUE_ID="$uid" yq '.[strenv(UNIQUE_ID)].name // ""' registered.yaml)   # the app registered under this id
+              other=$(NAME="$name" yq '.[] | select(((.name // "") | downcase) == (strenv(NAME) | downcase)) | .upstream_repo' registered.yaml | head -1)   # an app that already has this name
+            fi
+            if [ -n "$known" ]; then   # this repository is already registered
+              if [ "$known" = "$name" ]; then
+                echo "$(clean "$name") is already registered, so this is an update"
+              elif [ "${known,,}" = "${name,,}" ]; then
+                fail "$name: too close to the registered app '$known' (names are not case-sensitive)"
+              else
+                fail "$name: this repository is already registered as '$known'. Use that name to update it"
+              fi
+            elif [ -n "$other" ]; then   # a new repository, but the name is taken
+              fail "$name: the name is already registered for $other, but this request points to $repo. Choose another name"
+            else
+              echo "$(clean "$name") is a new name"
+            fi
+            echo "Registry check passed."
+          } 2>&1 | tee "$RUNNER_TEMP/check.log"
+
+      - name: Comment on the PR
+        if: steps.check.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          OUTCOME: ${{ steps.check.outcome }}
+          CAN_COMMENT: ${{ github.event.pull_request.head.repo.full_name == github.repository }}   # false for PRs from forks
+        run: |
+          set -euo pipefail
+
+          # the registration PR that the workflow opens only removes finished requests: no comment
+          if grep -q "This PR only removes registered requests" "$RUNNER_TEMP/check.log" 2>/dev/null; then
+            echo "Only removes finished requests, so no comment."
+            exit 0
+          fi
+
+          marker='<!-- mpships-registry-check -->'
+          # text from the PR goes into a code block only, with any ``` made harmless
+          log=$(sed 's/```/` ` `/g' "$RUNNER_TEMP/check.log" 2>/dev/null || true)
+          errors=$(printf '%s\n' "$log" | grep '^::error::' | sed 's/^::error:://' || true)
+          [ -n "$errors" ] || errors=$(printf '%s\n' "$log" | tail -15)
+
+          {
+            echo "$marker"
+            if [ "$OUTCOME" = success ]; then
+              echo "### Registry check passed"
+              echo
+              echo "A reviewer will look at this request next."
+            else
+              echo "### Registry check failed"
+              echo
+              echo "Please fix the problems below and push your changes to this PR."
+              echo "It cannot be merged until this check passes. The check runs again on every push."
+              echo
+              echo '```'
+              printf '%s\n' "$errors"
+              echo '```'
+            fi
+          } > "$RUNNER_TEMP/comment.md"
+
+          # the same text on the run's summary page, which every PR can use
+          cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+          # a PR from a fork gets a read-only token: no comment, the summary and annotations are enough
+          if [ "$CAN_COMMENT" != "true" ]; then
+            echo "This PR comes from a fork, so no comment is posted. See the run summary."
+            exit 0
+          fi
+
+          # one comment per PR: update ours if it exists, so pushes do not pile up comments
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
+                 --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id" \
+               | head -1 || true)
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          else
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+          fi
+
+      # A failed job is a failed status check. With this check required, GitHub blocks the merge.
+      - name: Fail if the check failed
+        if: steps.check.outcome == 'failure'
+        run: exit 1
