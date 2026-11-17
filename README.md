@@ -256,6 +256,7 @@ Custom CSS and JS belong in your `assets/` folder, where Dash loads them automat
   registry_date: <registry date>
   description: One-line description of what your app does.
   dois: [List of referencing dois]
+  tags: [List of related keywords]
 ```
 
 3. A maintainer reviews the code at that exact commit.
