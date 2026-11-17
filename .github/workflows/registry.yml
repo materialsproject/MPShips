@@ -1,19 +1,12 @@
 name: register
 
-# After a request is merged, its folder sits in registry/. For each folder this workflow:
-#   1. forks the app's repository into the organization (or brings an existing fork up to date)
-#   2. adds the fork as a submodule under apps/<name>, pinned at the requested commit
-#   3. records the app in registered.yaml
-#   4. removes the request folder from registry/
-# and opens a pull request with the result.
-#
-# It runs after a push to the branch below, which for outside contributors means after their pull
-# request was merged. A push only processes the requests it added or changed.
-# A request that fails stays in registry/. To retry the ones left over, run this workflow by hand:
-# a manual run processes every folder still in registry/ on the branch picked in "Use workflow from".
+# After a request is merged, this forks the app's repository into the organization, adds the fork
+# as a submodule under apps/<owner>-<repo> at the requested commit, records the request in
+# registered.yaml, removes the request folder, and opens a pull request with the result.
+# The request was already checked by check-registry.yml when its pull request was opened.
+# If a run fails (for example GitHub is down), nothing was pushed: use "Re-run jobs".
 
 on:
-  workflow_dispatch:
   push:
     branches: [mpships2]   # change to [main] later
     paths: ["registry/**"]
@@ -22,156 +15,74 @@ concurrency:
   group: register-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pull-requests: write
-
 env:
-  ORG: ${{ github.repository_owner }} # materialsproject
+  ORG: ${{ github.repository_owner }}   # the organization that owns the forks
 
 jobs:
   register:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.PAT }}   # forks, pushes the branch, opens the pull request
-      GIT_TERMINAL_PROMPT: "0"
+      GH_TOKEN: ${{ secrets.PAT }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.PAT }}
 
-      - name: Fork, add as submodule, record
-        id: register
-        continue-on-error: true   # still open the pull request for the apps that worked; the last step reports the failure
+      - name: Register the requested app
         env:
-          EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
-          set -uo pipefail
-          set +e   # one failing request must not stop the others
-          shopt -s nullglob
-          mkdir -p apps
-          [ -f registered.yaml ] || echo "[]" > registered.yaml
-          failed=0
-
-          # which folders: after a push, only the requests it added or changed; otherwise (a manual run,
-          # a brand new branch, or a push whose earlier commit is gone) every folder still in registry/
-          if [ "$EVENT" = "push" ] && git cat-file -e "${BEFORE}^{commit}" 2> /dev/null; then
-            dirs=()
-            while IFS= read -r file; do
-              dirs+=("$(dirname "$file")/")
-            done < <(git diff --name-only --diff-filter=AM "$BEFORE" "$AFTER" -- ':(glob)registry/*/registry.yaml')
-          else
-            dirs=(registry/*/)
-          fi
-          echo "requests to process: ${#dirs[@]}"
-
-          for dir in "${dirs[@]}"; do
-            name=$(basename "$dir")
-            raw="${dir}registry.yaml"
-            if [ ! -f "$raw" ]; then
-              echo "::warning::$dir has no registry.yaml, skipped"
-              continue
-            fi
-            # the request is a one-item list ("- name: ...", as the README shows) or a plain mapping
-            items=$(yq 'select(tag == "!!seq") | length' "$raw" 2> /dev/null)
-            if [ -n "$items" ] && [ "$items" -gt 1 ]; then
-              echo "::error::$name: $raw has $items entries, but a request is for one app (request kept in registry/)"
-              failed=1
-              continue
-            fi
-            req=$(mktemp)
-            yq '(select(tag == "!!seq") | .[0]) // .' "$raw" > "$req" \
-              || { echo "::error::$name: $raw is not valid YAML (request kept in registry/)"; failed=1; continue; }
-            repo=$(yq '.upstream_repo // ""' "$req")
-            sha=$(yq '.upstream_commit // ""' "$req")
-
-            # the only check kept: these values end up in commands that run with the token
-            [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "::error::invalid app name (folder name): $name"; failed=1; continue; }
-            [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "::error::$name: invalid upstream_commit: ${sha:-(empty)}"; failed=1; continue; }
-            [[ $repo =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$ ]] || { echo "::error::$name: invalid upstream_repo: ${repo:-(empty)}"; failed=1; continue; }
-            owner=${BASH_REMATCH[1]}
-            rname=${BASH_REMATCH[2]%.git}
-            fork="mpships-app-${owner}-${rname}"
-
-            # 1. fork it, or bring the existing fork up to date
-            if gh repo view "$ORG/$fork" > /dev/null 2>&1; then
-              echo "$name: $ORG/$fork exists, updating it"
-              gh repo sync "$ORG/$fork" || echo "::warning::$name: could not update $ORG/$fork, using what it has"
-            else
-              echo "$name: forking $owner/$rname as $ORG/$fork"
-              if ! gh repo fork "$owner/$rname" --org "$ORG" --fork-name "$fork" --clone=false --remote=false; then
-                echo "::error::$name: could not fork $owner/$rname (request kept in registry/)"
-                failed=1
-                continue
-              fi
-              for _ in $(seq 1 30); do   # a fork is created in the background
-                gh repo view "$ORG/$fork" > /dev/null 2>&1 && break
-                sleep 2
-              done
-            fi
-
-            # 2. the fork becomes a submodule, pinned at the requested commit
-            added=0
-            if git ls-files --error-unmatch -- "apps/$name" > /dev/null 2>&1; then
-              git submodule update --init -- "apps/$name"
-            else
-              added=1
-              git submodule add --name "$name" -- "https://github.com/$ORG/$fork.git" "apps/$name"
-            fi || { echo "::error::$name: could not add the fork as a submodule (request kept in registry/)"; failed=1; continue; }
-            git -C "apps/$name" checkout -q --detach "$sha" 2> /dev/null \
-              || { git -C "apps/$name" fetch -q origin "$sha" && git -C "apps/$name" checkout -q --detach "$sha"; } \
-              || {
-                echo "::error::$name: commit $sha was not found in $ORG/$fork (request kept in registry/)"
-                if [ "$added" -eq 1 ]; then   # undo the submodule that was just added: a failed request leaves nothing behind
-                  git submodule deinit -q -f "apps/$name"
-                  git rm -q -f "apps/$name"
-                  rm -rf ".git/modules/apps/$name"
-                fi
-                failed=1
-                continue
-              }
-            git add -- .gitmodules "apps/$name"
-
-            # 3. record it in registered.yaml (replaces any earlier entry for this name)
-            if ! NAME="$name" REQ="$req" FORK="https://github.com/$ORG/$fork" yq -i '
-              del(.[] | select(.name == strenv(NAME))) |
-              . += [load(strenv(REQ)) | .name = strenv(NAME) | .fork = strenv(FORK)] |
-              sort_by(.name)
-            ' registered.yaml; then
-              echo "::error::$name: could not update registered.yaml (request kept in registry/)"
-              failed=1
-              continue
-            fi
-
-            # 4. the request is done: only now is it removed
-            rm -rf "$dir"
-          done
-
-          exit $failed
-
-      - name: Open a pull request
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A apps registered.yaml registry
-          [ -f .gitmodules ] && git add .gitmodules
-          if git diff --cached --quiet; then
-            echo "Nothing to commit."
+          # the request this push added or changed (a pull request has exactly one)
+          file=$(git diff --no-renames --name-only --diff-filter=AM "$BEFORE" "$AFTER" -- ':(glob)registry/*/registry.yaml')
+          if [ -z "$file" ]; then
+            echo "No request in this push."
             exit 0
           fi
+          [ "$(echo "$file" | wc -l)" -eq 1 ] || { echo "Expected one request, found: $file"; exit 1; }
+
+          repo=$(yq '.[0].upstream_repo' "$file")
+          sha=$(yq '.[0].upstream_commit' "$file")
+          owner=$(basename "$(dirname "$repo")")
+          rname=$(basename "$repo" .git)
+          uid="${owner,,}-${rname,,}"   # identifies the app: the upstream owner and repository
+          fork="mpships-app-$uid"
+
+          # 1. fork it, or bring the existing fork up to date
+          if gh repo view "$ORG/$fork" > /dev/null 2>&1; then
+            gh repo sync "$ORG/$fork" || echo "could not update $ORG/$fork, using what it has"
+          else
+            gh repo fork "$owner/$rname" --org "$ORG" --fork-name "$fork" --clone=false
+            for _ in $(seq 1 30); do   # a fork is created in the background
+              gh repo view "$ORG/$fork" > /dev/null 2>&1 && break
+              sleep 2
+            done
+          fi
+
+          # 2. the fork becomes a submodule, at the requested commit
+          if git ls-files --error-unmatch -- "apps/$uid" > /dev/null 2>&1; then
+            git submodule update --init -- "apps/$uid"
+          else
+            git submodule add --name "$uid" -- "https://github.com/$ORG/$fork.git" "apps/$uid"
+          fi
+          git -C "apps/$uid" checkout -q "$sha^{commit}"
+
+          # 3. record the request in registered.yaml: the unique id is the key, the request is the value
+          if [ ! -s registered.yaml ] || [ "$(yq 'length' registered.yaml)" -eq 0 ]; then
+            echo "{}" > registered.yaml
+          fi
+          UNIQUE_ID="$uid" REQ="$file" yq -i '.[strenv(UNIQUE_ID)] = (load(strenv(REQ)) | .[0]) | sort_keys(.)' registered.yaml
+
+          # 4. the request is done: remove it, and open a pull request
+          git rm -q -r "$(dirname "$file")"
+          git add .gitmodules "apps/$uid" registered.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           branch="register/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git checkout -b "$branch"
-          git commit -m "Register apps from registry ${GITHUB_SHA::7}"
+          git commit -m "Register $uid from ${AFTER::7}"
           git push origin "$branch"
           gh pr create --base "$GITHUB_REF_NAME" --head "$branch" \
-            --title "Register apps from registry ${GITHUB_SHA::7}" \
-            --body "Forked into ${ORG}, added as submodules under apps/, and recorded in registered.yaml."
-
-      - name: Fail if any request could not be registered
-        if: steps.register.outcome == 'failure'
-        run: |
-          echo "::error::Some requests failed. They are still in registry/ and will be tried again the next time this workflow runs."
-          exit 1
+            --title "Register $uid from ${AFTER::7}" \
+            --body "Forked into ${ORG}, added as a submodule under apps/${uid}, and recorded in registered.yaml."
