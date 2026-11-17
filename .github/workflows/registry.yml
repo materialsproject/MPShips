@@ -70,18 +70,28 @@ jobs:
 
           for dir in "${dirs[@]}"; do
             name=$(basename "$dir")
-            req="${dir}registry.yaml"
-            if [ ! -f "$req" ]; then
+            raw="${dir}registry.yaml"
+            if [ ! -f "$raw" ]; then
               echo "::warning::$dir has no registry.yaml, skipped"
               continue
             fi
-            repo=$(yq '.upstream_repo' "$req")
-            sha=$(yq '.upstream_commit' "$req")
+            # the request is a one-item list ("- name: ...", as the README shows) or a plain mapping
+            items=$(yq 'select(tag == "!!seq") | length' "$raw" 2> /dev/null)
+            if [ -n "$items" ] && [ "$items" -gt 1 ]; then
+              echo "::error::$name: $raw has $items entries, but a request is for one app (request kept in registry/)"
+              failed=1
+              continue
+            fi
+            req=$(mktemp)
+            yq '(select(tag == "!!seq") | .[0]) // .' "$raw" > "$req" \
+              || { echo "::error::$name: $raw is not valid YAML (request kept in registry/)"; failed=1; continue; }
+            repo=$(yq '.upstream_repo // ""' "$req")
+            sha=$(yq '.upstream_commit // ""' "$req")
 
             # the only check kept: these values end up in commands that run with the token
             [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "::error::invalid app name (folder name): $name"; failed=1; continue; }
-            [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "::error::$name: invalid upstream_commit: $sha"; failed=1; continue; }
-            [[ $repo =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$ ]] || { echo "::error::$name: invalid upstream_repo: $repo"; failed=1; continue; }
+            [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "::error::$name: invalid upstream_commit: ${sha:-(empty)}"; failed=1; continue; }
+            [[ $repo =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$ ]] || { echo "::error::$name: invalid upstream_repo: ${repo:-(empty)}"; failed=1; continue; }
             owner=${BASH_REMATCH[1]}
             rname=${BASH_REMATCH[2]%.git}
             fork="mpships-app-${owner}-${rname}"
