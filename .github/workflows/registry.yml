@@ -101,11 +101,11 @@ jobs:
       - name: Record it in registered.yaml
         if: steps.request.outputs.found == 'true'
         run: |
-          # the unique id is the key, the request is the value
+          # the unique id is the key; the value is the request as written (registry_info) and registered_at, the date (MM-DD-YYYY, UTC) the workflow added the app
           if [ ! -s registered.yaml ] || [ "$(yq 'length' registered.yaml)" -eq 0 ]; then
             echo "{}" > registered.yaml
           fi
-          REQ="$REQUEST_FILE" yq -i '.[strenv(UNIQUE_ID)] = (load(strenv(REQ)) | .[0]) | sort_keys(.)' registered.yaml
+          REQ="$REQUEST_FILE" NOW="$(date -u +%m-%d-%Y)" yq -i '.[strenv(UNIQUE_ID)] = {"registry_info": (load(strenv(REQ)) | .[0]), "registered_at": strenv(NOW)} | sort_keys(.)' registered.yaml
 
       - name: Open the pull request
         if: steps.request.outputs.found == 'true'
