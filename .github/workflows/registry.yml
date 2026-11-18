@@ -1,35 +1,43 @@
 name: register
 
-# After a request is merged, this forks the app's repository into the organization, adds the fork
+# After a request is merged, this copies the app's repository into the organization, adds the copy
 # as a submodule under apps/<owner>-<repo> at the requested commit, records the request in
 # registered.yaml, removes the request folder, and opens a pull request with the result.
+# It acts as the organization's GitHub App (a token made at the start of the job), not as a person.
 # The request was already checked by check-registry.yml when its pull request was opened.
-# If a run fails (for example GitHub is down), nothing was pushed: use "Re-run jobs".
+# If a run fails (for example GitHub is down), nothing was pushed here: use "Re-run jobs".
+# There is no concurrency limit on purpose: each merged request must get its own run, and GitHub
+# would cancel a waiting run, which would leave that request unregistered without any message.
+# If two registrations run at the same time, their pull requests may conflict in .gitmodules.
 
 on:
   push:
     branches: [mpships2]   # change to [main] later
     paths: ["registry/**"]
 
-concurrency:
-  group: register-${{ github.ref }}
-  cancel-in-progress: false
-
 env:
-  ORG: ${{ github.repository_owner }}   # the organization that owns the forks
+  ORG: ${{ github.repository_owner }}   # the organization that owns the copies
 
 jobs:
   register:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.PAT }}
     steps:
+      - name: Get a token for the GitHub App
+        id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.MP_REPO_CREATOR_APP_ID }}
+          private-key: ${{ secrets.MP_REPO_CREATOR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          token: ${{ secrets.PAT }}
+          token: ${{ steps.app.outputs.token }}
 
-      - name: Register the requested app
+      # the later steps get what they need from the environment
+      - name: Read the request
+        id: request
         env:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
@@ -38,51 +46,82 @@ jobs:
           file=$(git diff --no-renames --name-only --diff-filter=AM "$BEFORE" "$AFTER" -- ':(glob)registry/*/registry.yaml')
           if [ -z "$file" ]; then
             echo "No request in this push."
+            echo "found=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           [ "$(echo "$file" | wc -l)" -eq 1 ] || { echo "Expected one request, found: $file"; exit 1; }
 
           repo=$(yq '.[0].upstream_repo' "$file")
-          sha=$(yq '.[0].upstream_commit' "$file")
           owner=$(basename "$(dirname "$repo")")
           rname=$(basename "$repo" .git)
           uid="${owner,,}-${rname,,}"   # identifies the app: the upstream owner and repository
-          fork="mpships-app-$uid"
+          {
+            echo "REQUEST_FILE=$file"
+            echo "UPSTREAM_OWNER=$owner"
+            echo "UPSTREAM_NAME=$rname"
+            echo "UPSTREAM_COMMIT=$(yq '.[0].upstream_commit' "$file")"
+            echo "UNIQUE_ID=$uid"
+            echo "COPY_NAME=mpships-app-$uid"
+          } >> "$GITHUB_ENV"
+          echo "found=true" >> "$GITHUB_OUTPUT"
 
-          # 1. fork it, or bring the existing fork up to date
-          if gh repo view "$ORG/$fork" > /dev/null 2>&1; then
-            gh repo sync "$ORG/$fork" || echo "could not update $ORG/$fork, using what it has"
-          else
-            gh repo fork "$owner/$rname" --org "$ORG" --fork-name "$fork" --clone=false
-            for _ in $(seq 1 30); do   # a fork is created in the background
-              gh repo view "$ORG/$fork" > /dev/null 2>&1 && break
-              sleep 2
-            done
+      - name: Create the repository
+        if: steps.request.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          # an app cannot fork a repository it is not installed on, so the organization gets an empty one
+          if ! gh repo view "$ORG/$COPY_NAME" > /dev/null 2>&1; then
+            # gh and not curl: gh stops the job when GitHub refuses the request, while curl exits 0 on a
+            # 403 or 422 unless --fail-with-body is given, and gh needs no hand-written JSON
+            gh repo create "$ORG/$COPY_NAME" --public --description "Copy of $UPSTREAM_OWNER/$UPSTREAM_NAME for MPShips"
           fi
+          # every run, before any code is pushed: the app's own workflows must never run here
+          gh api -X PUT "repos/$ORG/$COPY_NAME/actions/permissions" -F enabled=false
 
-          # 2. the fork becomes a submodule, at the requested commit
-          if git ls-files --error-unmatch -- "apps/$uid" > /dev/null 2>&1; then
-            git submodule update --init -- "apps/$uid"
+      - name: Copy the app into it
+        if: steps.request.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          git clone -q --bare --single-branch "https://github.com/$UPSTREAM_OWNER/$UPSTREAM_NAME.git" "$RUNNER_TEMP/upstream.git"
+          git -C "$RUNNER_TEMP/upstream.git" push -q "https://x-access-token:${GH_TOKEN}@github.com/$ORG/$COPY_NAME.git" --all
+          gh repo edit "$ORG/$COPY_NAME" --default-branch "$(git -C "$RUNNER_TEMP/upstream.git" symbolic-ref --short HEAD)"
+
+      - name: Add it as a submodule
+        if: steps.request.outputs.found == 'true'
+        run: |
+          if git ls-files --error-unmatch -- "apps/$UNIQUE_ID" > /dev/null 2>&1; then
+            git submodule update --init -- "apps/$UNIQUE_ID"
           else
-            git submodule add --name "$uid" -- "https://github.com/$ORG/$fork.git" "apps/$uid"
+            git submodule add --name "$UNIQUE_ID" -- "https://github.com/$ORG/$COPY_NAME.git" "apps/$UNIQUE_ID"
           fi
-          git -C "apps/$uid" checkout -q "$sha^{commit}"
+          git -C "apps/$UNIQUE_ID" checkout -q "$UPSTREAM_COMMIT^{commit}"
 
-          # 3. record the request in registered.yaml: the unique id is the key, the request is the value
+      - name: Record it in registered.yaml
+        if: steps.request.outputs.found == 'true'
+        run: |
+          # the unique id is the key, the request is the value
           if [ ! -s registered.yaml ] || [ "$(yq 'length' registered.yaml)" -eq 0 ]; then
             echo "{}" > registered.yaml
           fi
-          UNIQUE_ID="$uid" REQ="$file" yq -i '.[strenv(UNIQUE_ID)] = (load(strenv(REQ)) | .[0]) | sort_keys(.)' registered.yaml
+          REQ="$REQUEST_FILE" yq -i '.[strenv(UNIQUE_ID)] = (load(strenv(REQ)) | .[0]) | sort_keys(.)' registered.yaml
 
-          # 4. the request is done: remove it, and open a pull request
-          git rm -q -r "$(dirname "$file")"
-          git add .gitmodules "apps/$uid" registered.yaml
+      - name: Open the pull request
+        if: steps.request.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          AFTER: ${{ github.sha }}
+        run: |
+          # the request is done: remove it
+          git rm -q -r "$(dirname "$REQUEST_FILE")"
+          git add .gitmodules "apps/$UNIQUE_ID" registered.yaml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           branch="register/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git checkout -b "$branch"
-          git commit -m "Register $uid from ${AFTER::7}"
+          git commit -m "Register $UNIQUE_ID from ${AFTER::7}"
           git push origin "$branch"
           gh pr create --base "$GITHUB_REF_NAME" --head "$branch" \
-            --title "Register $uid from ${AFTER::7}" \
-            --body "Forked into ${ORG}, added as a submodule under apps/${uid}, and recorded in registered.yaml."
+            --title "Register $UNIQUE_ID from ${AFTER::7}" \
+            --body "Copied into ${ORG}, added as a submodule under apps/${UNIQUE_ID}, and recorded in registered.yaml."
