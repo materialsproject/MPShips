@@ -4,7 +4,8 @@ name: check-registry
 # request (registry/<name>/registry.yaml); one without a request cannot be merged either, except the
 # registration PR that only removes finished requests. It checks the file, the repository and the commit, and it works
 # out the unique id of the app (the upstream owner and repository, in lower case, for example
-# minhsueh-thermal-redox-app). registered.yaml has one key per unique id: a request whose id is
+# minhsueh-thermal-redox-app). registered.yaml has one key per unique id, whose value holds the
+# request as registry_info and registered_at: a request whose id is
 # already there is an update, and it must keep the name it was registered with; a new id must not
 # take a name that another app already has.
 # If something is wrong, the check fails and the problems are shown: in a comment on the PR when
@@ -98,19 +99,26 @@ jobs:
               bad="the file must have exactly one item, but it has $(yq 'length' "$req")"
             else
               missing=""
-              for key in name upstream_repo upstream_commit; do   # in any order
-                [ -n "$(KEY=$key yq '.[0][strenv(KEY)] // ""' "$req" 2>/dev/null)" ] || missing="$missing $key"
+              for key in name upstream_repo upstream_commit version author author_git registry_date description tags; do   # all required, in any order
+                val=$(KEY=$key yq '.[0][strenv(KEY)] // ""' "$req" 2>/dev/null)
+                [ -n "${val//[[:space:]]/}" ] || missing="$missing $key"   # empty, or only spaces, counts as empty
               done
-              if [ -n "$missing" ]; then bad="missing required key(s):$missing (required: name, upstream_repo, upstream_commit)"; fi
+              if [ -n "$missing" ]; then bad="missing or empty required key(s):$missing (all of these must be filled in: name, upstream_repo, upstream_commit, version, author, author_git, registry_date, description, tags)"; fi
+              if [ -z "$bad" ] && { [ "$(yq '.[0].tags | tag' "$req" 2>/dev/null)" != "!!seq" ] || [ "$(yq '.[0].tags | length' "$req")" -eq 0 ]; }; then
+                bad="tags must be a list with at least one tag, for example tags: [redox]"
+              fi
             fi
             if [ -z "$bad" ]; then
               given=$(yq '.[0].name' "$req"); sha=$(yq '.[0].upstream_commit' "$req"); repo=$(yq '.[0].upstream_repo' "$req")
+              rdate=$(yq '.[0].registry_date // ""' "$req")   # required, checked above: it must be a real date, MM-DD-YYYY
               if [ "$given" != "$name" ]; then
                 bad="name is '$given', but the folder is called '$name'. They must match"
               elif ! [[ $sha =~ ^[0-9a-f]{40}$ ]]; then
                 bad="upstream_commit must be the full 40-character commit hash (lowercase letters and digits), not '$sha'"
               elif ! [[ $repo =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
                 bad="upstream_repo must look like https://github.com/OWNER/REPO, not '$repo'"
+              elif ! { [[ $rdate =~ ^[0-9]{2}-[0-9]{2}-[0-9]{4}$ ]] && [ "$(date -d "${rdate:6:4}-${rdate:0:2}-${rdate:3:2}" +%m-%d-%Y 2>/dev/null)" = "$rdate" ]; }; then
+                bad="registry_date must be a real date written MM-DD-YYYY, for example 11-18-2026, not '$rdate'"
               fi
             fi
             if [ -z "$bad" ]; then   # the repository and the commit must really exist on GitHub
@@ -136,8 +144,8 @@ jobs:
             uid="$(basename "$(dirname "$repo")")-$(basename "$repo" .git)"; uid=${uid,,}
             known=""; other=""
             if [ -s registered.yaml ]; then
-              known=$(UNIQUE_ID="$uid" yq '.[strenv(UNIQUE_ID)].name // ""' registered.yaml)   # the app registered under this id
-              other=$(NAME="$name" yq '.[] | select(((.name // "") | downcase) == (strenv(NAME) | downcase)) | .upstream_repo' registered.yaml | head -1)   # an app that already has this name
+              known=$(UNIQUE_ID="$uid" yq '.[strenv(UNIQUE_ID)].registry_info.name // ""' registered.yaml)   # the app registered under this id
+              other=$(NAME="$name" yq '.[] | .registry_info | select(((.name // "") | downcase) == (strenv(NAME) | downcase)) | .upstream_repo' registered.yaml | head -1)   # an app that already has this name
             fi
             if [ -n "$known" ]; then   # this repository is already registered
               if [ "$known" = "$name" ]; then
