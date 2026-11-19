@@ -21,6 +21,7 @@ env:
 jobs:
   register:
     runs-on: ubuntu-latest
+    environment: register-app
     steps:
       - name: Get a token for the GitHub App
         id: app
@@ -74,7 +75,7 @@ jobs:
           if ! gh repo view "$ORG/$COPY_NAME" > /dev/null 2>&1; then
             # gh and not curl: gh stops the job when GitHub refuses the request, while curl exits 0 on a
             # 403 or 422 unless --fail-with-body is given, and gh needs no hand-written JSON
-            gh repo create "$ORG/$COPY_NAME" --public --description "Copy of $UPSTREAM_OWNER/$UPSTREAM_NAME for MPShips"
+            gh api -X POST "orgs/$ORG/repos" -f name="$COPY_NAME" -F private=false > /dev/null
           fi
           # every run, before any code is pushed: the app's own workflows must never run here
           gh api -X PUT "repos/$ORG/$COPY_NAME/actions/permissions" -F enabled=false
