@@ -72,12 +72,15 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           # an app cannot fork a repository it is not installed on, so the organization gets an empty one
+          echo "1. does $ORG/$COPY_NAME exist?"
           if ! gh repo view "$ORG/$COPY_NAME" > /dev/null 2>&1; then
             # gh and not curl: gh stops the job when GitHub refuses the request, while curl exits 0 on a
             # 403 or 422 unless --fail-with-body is given, and gh needs no hand-written JSON
+            echo "2. no, so create it"
             gh api -X POST "orgs/$ORG/repos" -f name="$COPY_NAME" -F private=false > /dev/null
           fi
           # every run, before any code is pushed: the app's own workflows must never run here
+          echo "3. switch Actions off"
           gh api -X PUT "repos/$ORG/$COPY_NAME/actions/permissions" -F enabled=false
 
       - name: Copy the app into it
