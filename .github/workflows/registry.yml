@@ -1,87 +1,130 @@
-name: registry
+name: register
 
-# When a change to registry/registry.yaml is merged into the branch below,
-# freeze every new or changed app into app/<name>/.
-#   new or changed = a new name, or a different upstream_repo or upstream_commit
-#   frozen         = that exact commit's files only (no git history), minus unnecessary files
+# After a request is merged, this forks the app's repository into the organization, adds the fork
+# as a submodule under apps/<owner>-<repo> at the requested commit, records the request in
+# registered.yaml, removes the request folder, and opens a pull request with the result.
+# It acts as the organization's GitHub App (a token made at the start of the job), not as a person.
+# The request was already checked by check-registry.yml when its pull request was opened.
+# If a run fails (for example GitHub is down), nothing was pushed here: use "Re-run jobs".
+# There is no concurrency limit on purpose: each merged request must get its own run, and GitHub
+# would cancel a waiting run, which would leave that request unregistered without any message.
+# If two registrations run at the same time, their pull requests may conflict in .gitmodules.
 
 on:
-  workflow_dispatch:
   push:
-    # GitHub does not allow variables in the trigger, so it fires for a push to any
-    # branch that changes the registry. Every step below runs only on BRANCH.
-    paths: [registry/registry.yaml]
-
-concurrency:
-  group: registry-${{ github.ref }}
-  cancel-in-progress: false
+    branches: [mpships2]   # change to [main] later
+    paths: ["registry/**"]
 
 env:
-  BRANCH: mpships2   # the one place to change (use main later)
+  ORG: ${{ github.repository_owner }}   # the organization that owns the copies
 
 jobs:
-  registry:
+  register:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    environment: register-app
     steps:
+      - name: Get a token for the GitHub App
+        id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.MP_REPO_CREATOR_APP_ID }}
+          private-key: ${{ secrets.MP_REPO_CREATOR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - uses: actions/checkout@v5
-        if: github.ref_name == env.BRANCH
         with:
           fetch-depth: 0
+          token: ${{ secrets.PAT }}   # the pull request is in this repository, so a PAT does its git push
 
-      - name: Clone and freeze new or changed apps
-        if: github.ref_name == env.BRANCH
+      # the later steps get what they need from the environment
+      - name: Read the request
+        id: request
         env:
-          BASE: ${{ github.event.before }}
-          GIT_TERMINAL_PROMPT: "0"
-          GIT_LFS_SKIP_SMUDGE: "1"
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
         run: |
-          set -euo pipefail
-
-          # registry.yaml as it was before this merge (empty list if there was none)
-          git show "$BASE:registry/registry.yaml" > /tmp/old.yaml 2>/dev/null || echo "[]" > /tmp/old.yaml
-          mkdir -p app
-
-          while read -r name repo sha; do
-            # skip apps whose repo and commit are both unchanged
-            old=$(NAME="$name" yq '.[] | select(.name == strenv(NAME)) | .upstream_repo + " " + .upstream_commit' /tmp/old.yaml)
-            if [ "$old" = "$repo $sha" ]; then
-              continue
-            fi
-
-            # safety: the name becomes a folder, and the repo and SHA go to git
-            [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "::error::invalid name: $name"; exit 1; }
-            [[ $repo =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "::error::invalid upstream_repo: $repo"; exit 1; }
-            [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "::error::invalid upstream_commit: $sha"; exit 1; }
-
-            echo "Freezing $name @ ${sha:0:7}"
-
-            # 1. clone exactly that commit into a temporary folder
-            tmp=$(mktemp -d)
-            git init -q "$tmp"
-            git -C "$tmp" fetch -q --depth 1 "$repo" "$sha"
-            git -C "$tmp" checkout -q FETCH_HEAD
-
-            # 2. freeze: drop git history and unnecessary files
-            rm -rf "$tmp/.git" "$tmp/.github" "$tmp/.circleci" "$tmp/.vscode" "$tmp/.idea"
-            find "$tmp" \( -name __pycache__ -o -name '*.pyc' -o -name .DS_Store \) -prune -exec rm -rf {} +
-
-            # 3. only now replace the old snapshot, so a failed fetch never removes it
-            rm -rf "app/$name"
-            mv "$tmp" "app/$name"
-          done < <(yq '.[] | .name + " " + .upstream_repo + " " + .upstream_commit' registry/registry.yaml)
-
-      - name: Commit and push snapshots
-        if: github.ref_name == env.BRANCH
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f app   # -f: keep files even if a .gitignore would skip them
-          if git diff --cached --quiet; then
-            echo "Nothing to commit."
+          # the request this push added or changed (a pull request has exactly one)
+          file=$(git diff --no-renames --name-only --diff-filter=AM "$BEFORE" "$AFTER" -- ':(glob)registry/*/registry.yaml')
+          if [ -z "$file" ]; then
+            echo "No request in this push."
+            echo "found=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git commit -m "Archive approved apps from registry ${GITHUB_SHA::7}"
-          git pull --rebase origin "$BRANCH"
-          git push origin "HEAD:$BRANCH"
+          [ "$(echo "$file" | wc -l)" -eq 1 ] || { echo "Expected one request, found: $file"; exit 1; }
+
+          repo=$(yq '.[0].upstream_repo' "$file")
+          owner=$(basename "$(dirname "$repo")")
+          rname=$(basename "$repo" .git)
+          uid="${owner,,}-${rname,,}"   # identifies the app: the upstream owner and repository
+          {
+            echo "REQUEST_FILE=$file"
+            echo "UPSTREAM_OWNER=$owner"
+            echo "UPSTREAM_NAME=$rname"
+            echo "UPSTREAM_COMMIT=$(yq '.[0].upstream_commit' "$file")"
+            echo "UNIQUE_ID=$uid"
+            echo "COPY_NAME=mpships-app-$uid"
+          } >> "$GITHUB_ENV"
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      - name: Fork the repository
+        if: steps.request.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          MAINTAINERS_TEAM: ${{ vars.MAINTAINERS_TEAM }}   # team slug: gets the Admin role on every copy
+        run: |
+          # first time: fork the contributor's repository into the organization, under our own name.
+          # later (an update): the fork already exists, so bring its default branch up to date.
+          if gh api "repos/$ORG/$COPY_NAME" > /dev/null 2>&1; then
+            branch=$(gh api "repos/$ORG/$COPY_NAME" --jq .default_branch)
+            gh api -X POST "repos/$ORG/$COPY_NAME/merge-upstream" -f branch="$branch"
+          else
+            gh api -X POST "repos/$UPSTREAM_OWNER/$UPSTREAM_NAME/forks" -f organization="$ORG" -f name="$COPY_NAME" -F default_branch_only=true
+          fi
+          # GitHub makes a fork in the background: wait until the requested commit can be read in it
+          for i in $(seq 1 30); do
+            gh api "repos/$ORG/$COPY_NAME/commits/$UPSTREAM_COMMIT" > /dev/null 2>&1 && break
+            [ "$i" -lt 30 ] || { echo "$ORG/$COPY_NAME does not have $UPSTREAM_COMMIT"; exit 1; }
+            sleep 5
+          done
+          # every run: the app's own workflows must never run here
+          gh api -X PUT "repos/$ORG/$COPY_NAME/actions/permissions" -F enabled=false
+          # the maintainers team is admin of every copy
+          gh api -X PUT "orgs/$ORG/teams/$MAINTAINERS_TEAM/repos/$ORG/$COPY_NAME" -f permission=admin
+
+      - name: Add it as a submodule
+        if: steps.request.outputs.found == 'true'
+        run: |
+          if git ls-files --error-unmatch -- "apps/$UNIQUE_ID" > /dev/null 2>&1; then
+            git submodule update --init -- "apps/$UNIQUE_ID"
+          else
+            git submodule add --name "$UNIQUE_ID" -- "https://github.com/$ORG/$COPY_NAME.git" "apps/$UNIQUE_ID"
+          fi
+          git -C "apps/$UNIQUE_ID" checkout -q "$UPSTREAM_COMMIT^{commit}"
+
+      - name: Record it in registered.yaml
+        if: steps.request.outputs.found == 'true'
+        run: |
+          # the unique id is the key; the value is the request as written (registry_info) and registered_at, the date (MM-DD-YYYY, UTC) the workflow added the app
+          if [ ! -s registered.yaml ] || [ "$(yq 'length' registered.yaml)" -eq 0 ]; then
+            echo "{}" > registered.yaml
+          fi
+          REQ="$REQUEST_FILE" NOW="$(date -u +%m-%d-%Y)" yq -i '.[strenv(UNIQUE_ID)] = {"registry_info": (load(strenv(REQ)) | .[0]), "registered_at": strenv(NOW)} | sort_keys(.)' registered.yaml
+
+      - name: Open the pull request
+        if: steps.request.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+          AFTER: ${{ github.sha }}
+        run: |
+          # the request is done: remove it
+          git rm -q -r "$(dirname "$REQUEST_FILE")"
+          git add .gitmodules "apps/$UNIQUE_ID" registered.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="register/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git checkout -b "$branch"
+          git commit -m "Register $UNIQUE_ID from ${AFTER::7}"
+          git push origin "$branch"
+          gh pr create --base "$GITHUB_REF_NAME" --head "$branch" \
+            --title "Register $UNIQUE_ID from ${AFTER::7}" \
+            --body "Copied into ${ORG}, added as a submodule under apps/${UNIQUE_ID}, and recorded in registered.yaml."
