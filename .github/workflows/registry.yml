@@ -1,6 +1,6 @@
 name: register
 
-# After a request is merged, this copies the app's repository into the organization, adds the copy
+# After a request is merged, this forks the app's repository into the organization, adds the fork
 # as a submodule under apps/<owner>-<repo> at the requested commit, records the request in
 # registered.yaml, removes the request folder, and opens a pull request with the result.
 # It acts as the organization's GitHub App (a token made at the start of the job), not as a person.
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          token: ${{ steps.app.outputs.token }}
+          token: ${{ secrets.PAT }}   # the pull request is in this repository, so a PAT does its git push
 
       # the later steps get what they need from the environment
       - name: Read the request
@@ -66,38 +66,30 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "found=true" >> "$GITHUB_OUTPUT"
 
-      - name: Create the repository
+      - name: Fork the repository
         if: steps.request.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          MAINTAINERS_TEAM: ${{ vars.MAINTAINERS_TEAM }}   # team slug: gets the Admin role on every copy
         run: |
-          curl -L \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/orgs/$ORG/repos" \
-            -d "{\"name\":\"$COPY_NAME\",\"private\":false}"
-          # an app cannot fork a repository it is not installed on, so the organization gets an empty one
-          # echo "1. does $ORG/$COPY_NAME exist?"
-          # if ! gh repo view "$ORG/$COPY_NAME" > /dev/null 2>&1; then
-          #   # gh and not curl: gh stops the job when GitHub refuses the request, while curl exits 0 on a
-          #   # 403 or 422 unless --fail-with-body is given, and gh needs no hand-written JSON
-          #   echo "2. no, so create it"
-          #   gh api -X POST "orgs/$ORG/repos" -f name="$COPY_NAME" -F private=false > /dev/null
-          # fi
-          # every run, before any code is pushed: the app's own workflows must never run here
-          echo "3. switch Actions off"
+          # first time: fork the contributor's repository into the organization, under our own name.
+          # later (an update): the fork already exists, so bring its default branch up to date.
+          if gh api "repos/$ORG/$COPY_NAME" > /dev/null 2>&1; then
+            branch=$(gh api "repos/$ORG/$COPY_NAME" --jq .default_branch)
+            gh api -X POST "repos/$ORG/$COPY_NAME/merge-upstream" -f branch="$branch"
+          else
+            gh api -X POST "repos/$UPSTREAM_OWNER/$UPSTREAM_NAME/forks" -f organization="$ORG" -f name="$COPY_NAME" -F default_branch_only=true
+          fi
+          # GitHub makes a fork in the background: wait until the requested commit can be read in it
+          for i in $(seq 1 30); do
+            gh api "repos/$ORG/$COPY_NAME/commits/$UPSTREAM_COMMIT" > /dev/null 2>&1 && break
+            [ "$i" -lt 30 ] || { echo "$ORG/$COPY_NAME does not have $UPSTREAM_COMMIT"; exit 1; }
+            sleep 5
+          done
+          # every run: the app's own workflows must never run here
           gh api -X PUT "repos/$ORG/$COPY_NAME/actions/permissions" -F enabled=false
-
-      - name: Copy the app into it
-        if: steps.request.outputs.found == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: |
-          git clone -q --bare --single-branch "https://github.com/$UPSTREAM_OWNER/$UPSTREAM_NAME.git" "$RUNNER_TEMP/upstream.git"
-          git -C "$RUNNER_TEMP/upstream.git" push -q "https://x-access-token:${GH_TOKEN}@github.com/$ORG/$COPY_NAME.git" --all
-          gh repo edit "$ORG/$COPY_NAME" --default-branch "$(git -C "$RUNNER_TEMP/upstream.git" symbolic-ref --short HEAD)"
+          # the maintainers team is admin of every copy
+          gh api -X PUT "orgs/$ORG/teams/$MAINTAINERS_TEAM/repos/$ORG/$COPY_NAME" -f permission=admin
 
       - name: Add it as a submodule
         if: steps.request.outputs.found == 'true'
@@ -121,7 +113,7 @@ jobs:
       - name: Open the pull request
         if: steps.request.outputs.found == 'true'
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ secrets.PAT }}
           AFTER: ${{ github.sha }}
         run: |
           # the request is done: remove it

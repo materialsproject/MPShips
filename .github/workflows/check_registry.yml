@@ -1,5 +1,6 @@
-name: check-registry
+name: register
 
+<<<<<<< Updated upstream
 # Runs on every pull request into the branch below. A pull request must add or change exactly one
 # request (registry/<name>/registry.yaml); one without a request cannot be merged either, except the
 # registration PR that only removes finished requests. It checks the file, the repository and the commit, and it works
@@ -21,40 +22,81 @@ name: check-registry
 
 on:
   pull_request:
+=======
+# After a request is merged, its folder sits in registry/. For each folder this workflow:
+#   1. forks the app's repository into the organization (or brings an existing fork up to date)
+#   2. adds the fork as a submodule under apps/<name>, pinned at the requested commit
+#   3. records the app in registered.yaml
+#   4. removes the request folder from registry/
+# and opens a pull request with the result.
+#
+# It runs after a push to the branch below, which for outside contributors means after their pull
+# request was merged. A push only processes the requests it added or changed.
+# A request that fails stays in registry/. To retry the ones left over, run this workflow by hand:
+# a manual run processes every folder still in registry/ on the branch picked in "Use workflow from".
+
+on:
+  workflow_dispatch:
+  push:
+>>>>>>> Stashed changes
     branches: [mpships2]   # change to [main] later
+    paths: ["registry/**"]
 
 concurrency:
-  group: check-registry-${{ github.event.pull_request.number }}
-  cancel-in-progress: true   # a newer push to the PR replaces the older check
+  group: register-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
+<<<<<<< Updated upstream
   contents: read
   pull-requests: write   # to comment on the PR (GitHub only grants this to PRs from the same repository)
+=======
+  contents: write
+  pull-requests: write
+
+env:
+  ORG: mpships-apps   # the organization that owns the forks
+>>>>>>> Stashed changes
 
 jobs:
-  check:
-    name: Registry check
+  register:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PAT }}   # forks, pushes the branch, opens the pull request
+      GIT_TERMINAL_PROMPT: "0"
     steps:
+<<<<<<< Updated upstream
       # the base branch, never the PR: registered.yaml must be the one that is already merged
+=======
+>>>>>>> Stashed changes
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
+          token: ${{ secrets.PAT }}
 
-      - name: Check the registry request
-        id: check
-        continue-on-error: true   # so the comment below is always posted; the last step fails the job
+      - name: Fork, add as submodule, record
+        id: register
+        continue-on-error: true   # still open the pull request for the apps that worked; the last step reports the failure
         env:
+<<<<<<< Updated upstream
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}   # read-only look-ups of the contributor's public repository
+=======
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+>>>>>>> Stashed changes
         run: |
-          set -o pipefail
-          {
-            git fetch -q origin "refs/pull/$PR_NUMBER/head"
-            head=$(git rev-parse FETCH_HEAD)
+          set -uo pipefail
+          set +e   # one failing request must not stop the others
+          shopt -s nullglob
+          mkdir -p apps
+          [ -f registered.yaml ] || echo "[]" > registered.yaml
+          failed=0
 
+<<<<<<< Updated upstream
             clean() { printf '%s' "$*" | tr '\r\n' '  ' | cut -c1-300; }   # text from the PR: one short line
             fail() { echo "::error::$(clean "$*")"; exit 1; }
 
@@ -176,9 +218,113 @@ jobs:
           # the registration PR that the workflow opens only removes finished requests: no comment
           if grep -q "This PR only removes registered requests" "$RUNNER_TEMP/check.log" 2>/dev/null; then
             echo "Only removes finished requests, so no comment."
+=======
+          # which folders: after a push, only the requests it added or changed; otherwise (a manual run,
+          # a brand new branch, or a push whose earlier commit is gone) every folder still in registry/
+          if [ "$EVENT" = "push" ] && git cat-file -e "${BEFORE}^{commit}" 2> /dev/null; then
+            dirs=()
+            while IFS= read -r file; do
+              dirs+=("$(dirname "$file")/")
+            done < <(git diff --name-only --diff-filter=AM "$BEFORE" "$AFTER" -- ':(glob)registry/*/registry.yaml')
+          else
+            dirs=(registry/*/)
+          fi
+          echo "requests to process: ${#dirs[@]}"
+
+          for dir in "${dirs[@]}"; do
+            name=$(basename "$dir")
+            req="${dir}registry.yaml"
+            if [ ! -f "$req" ]; then
+              echo "::warning::$dir has no registry.yaml, skipped"
+              continue
+            fi
+            repo=$(yq '.upstream_repo' "$req")
+            sha=$(yq '.upstream_commit' "$req")
+
+            # the only check kept: these values end up in commands that run with the token
+            [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "::error::invalid app name (folder name): $name"; failed=1; continue; }
+            [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "::error::$name: invalid upstream_commit: $sha"; failed=1; continue; }
+            [[ $repo =~ ^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$ ]] || { echo "::error::$name: invalid upstream_repo: $repo"; failed=1; continue; }
+            owner=${BASH_REMATCH[1]}
+            rname=${BASH_REMATCH[2]%.git}
+            fork="mpships-app-${owner}-${rname}"
+
+            # 1. fork it, or bring the existing fork up to date
+            if gh repo view "$ORG/$fork" > /dev/null 2>&1; then
+              echo "$name: $ORG/$fork exists, updating it"
+              gh repo sync "$ORG/$fork" || echo "::warning::$name: could not update $ORG/$fork, using what it has"
+            else
+              echo "$name: forking $owner/$rname as $ORG/$fork"
+              if ! gh repo fork "$owner/$rname" --org "$ORG" --fork-name "$fork" --clone=false --remote=false; then
+                echo "::error::$name: could not fork $owner/$rname (request kept in registry/)"
+                failed=1
+                continue
+              fi
+              for _ in $(seq 1 30); do   # a fork is created in the background
+                gh repo view "$ORG/$fork" > /dev/null 2>&1 && break
+                sleep 2
+              done
+            fi
+
+            # 2. the fork becomes a submodule, pinned at the requested commit
+            added=0
+            if git ls-files --error-unmatch -- "apps/$name" > /dev/null 2>&1; then
+              git submodule update --init -- "apps/$name"
+            else
+              added=1
+              git submodule add --name "$name" -- "https://github.com/$ORG/$fork.git" "apps/$name"
+            fi || { echo "::error::$name: could not add the fork as a submodule (request kept in registry/)"; failed=1; continue; }
+            git -C "apps/$name" checkout -q --detach "$sha" 2> /dev/null \
+              || { git -C "apps/$name" fetch -q origin "$sha" && git -C "apps/$name" checkout -q --detach "$sha"; } \
+              || {
+                echo "::error::$name: commit $sha was not found in $ORG/$fork (request kept in registry/)"
+                if [ "$added" -eq 1 ]; then   # undo the submodule that was just added: a failed request leaves nothing behind
+                  git submodule deinit -q -f "apps/$name"
+                  git rm -q -f "apps/$name"
+                  rm -rf ".git/modules/apps/$name"
+                fi
+                failed=1
+                continue
+              }
+            git add -- .gitmodules "apps/$name"
+
+            # 3. record it in registered.yaml (replaces any earlier entry for this name)
+            if ! NAME="$name" REQ="$req" FORK="https://github.com/$ORG/$fork" yq -i '
+              del(.[] | select(.name == strenv(NAME))) |
+              . += [load(strenv(REQ)) | .name = strenv(NAME) | .fork = strenv(FORK)] |
+              sort_by(.name)
+            ' registered.yaml; then
+              echo "::error::$name: could not update registered.yaml (request kept in registry/)"
+              failed=1
+              continue
+            fi
+
+            # 4. the request is done: only now is it removed
+            rm -rf "$dir"
+          done
+
+          exit $failed
+
+      - name: Open a pull request
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A apps registered.yaml registry
+          [ -f .gitmodules ] && git add .gitmodules
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+>>>>>>> Stashed changes
             exit 0
           fi
+          branch="register/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git checkout -b "$branch"
+          git commit -m "Register apps from registry ${GITHUB_SHA::7}"
+          git push origin "$branch"
+          gh pr create --base "$GITHUB_REF_NAME" --head "$branch" \
+            --title "Register apps from registry ${GITHUB_SHA::7}" \
+            --body "Forked into ${ORG}, added as submodules under apps/, and recorded in registered.yaml."
 
+<<<<<<< Updated upstream
           marker='<!-- mpships-registry-check -->'
           # text from the PR goes into a code block only, with any ``` made harmless
           log=$(sed 's/```/` ` `/g' "$RUNNER_TEMP/check.log" 2>/dev/null || true)
@@ -226,3 +372,10 @@ jobs:
       - name: Fail if the check failed
         if: steps.check.outcome == 'failure'
         run: exit 1
+=======
+      - name: Fail if any request could not be registered
+        if: steps.register.outcome == 'failure'
+        run: |
+          echo "::error::Some requests failed. They are still in registry/ and will be tried again the next time this workflow runs."
+          exit 1
+>>>>>>> Stashed changes
